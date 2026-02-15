@@ -1,0 +1,169 @@
+# GuardClaw Example Policy
+# This demonstrates v1.0 policy syntax
+
+name: "example-production-policy"
+version: "1.0.0"
+description: "Example policy demonstrating GuardClaw rule syntax"
+
+# What to do if no rules match
+default_decision: "DENY"
+
+metadata:
+  author: "Security Team"
+  last_updated: "2026-02-05"
+  environment: "production"
+
+rules:
+  # ========================================================================
+  # SAFE OPERATIONS (Allow)
+  # ========================================================================
+  
+  - rule_id: "allow-read-tmp"
+    description: "Allow reading files in /tmp/"
+    priority: 10
+    enabled: true
+    conditions:
+      - field: "action_type"
+        operator: "equals"
+        value: "file.read"
+      - field: "target_resource"
+        operator: "contains"
+        value: "/tmp/"
+    action:
+      decision: "ALLOW"
+      reason: "Reading temporary files is safe"
+      log_level: "INFO"
+  
+  - rule_id: "allow-read-home"
+    description: "Allow reading files in user home directory"
+    priority: 10
+    enabled: true
+    conditions:
+      - field: "action_type"
+        operator: "equals"
+        value: "file.read"
+      - field: "target_resource"
+        operator: "contains"
+        value: "/home/"
+    action:
+      decision: "ALLOW"
+      reason: "Reading home directory files is allowed"
+      log_level: "INFO"
+  
+  - rule_id: "allow-safe-apis"
+    description: "Allow calling safe API endpoints"
+    priority: 10
+    enabled: true
+    conditions:
+      - field: "action_type"
+        operator: "equals"
+        value: "api.call"
+      - field: "target_resource"
+        operator: "in"
+        value:
+          - "https://api.example.com/status"
+          - "https://api.example.com/health"
+    action:
+      decision: "ALLOW"
+      reason: "Safe API endpoints"
+      log_level: "INFO"
+  
+  # ========================================================================
+  # DANGEROUS OPERATIONS (Deny)
+  # ========================================================================
+  
+  - rule_id: "deny-delete-production"
+    description: "Block deleting production files"
+    priority: 100  # High priority (evaluated first)
+    enabled: true
+    conditions:
+      - field: "action_type"
+        operator: "equals"
+        value: "file.delete"
+      - field: "target_resource"
+        operator: "contains"
+        value: "/production/"
+    action:
+      decision: "DENY"
+      reason: "Deleting production files is forbidden"
+      log_level: "ERROR"
+      notify:
+        - "security@company.com"
+      metadata:
+        severity: "critical"
+  
+  - rule_id: "deny-execute-untrusted"
+    description: "Block executing commands from untrusted sources"
+    priority: 100
+    enabled: true
+    conditions:
+      - field: "action_type"
+        operator: "equals"
+        value: "command.execute"
+      - field: "parameters.trusted"
+        operator: "not_equals"
+        value: true
+    action:
+      decision: "DENY"
+      reason: "Only trusted commands can be executed"
+      log_level: "WARNING"
+  
+  - rule_id: "deny-credential-access-untrusted-agent"
+    description: "Block credential access by untrusted agents"
+    priority: 100
+    enabled: true
+    conditions:
+      - field: "action_type"
+        operator: "equals"
+        value: "credential.access"
+      - field: "agent_id"
+        operator: "not_in"
+        value:
+          - "agent-trusted-1"
+          - "agent-trusted-2"
+    action:
+      decision: "DENY"
+      reason: "Only trusted agents can access credentials"
+      log_level: "ERROR"
+      notify:
+        - "security@company.com"
+  
+  # ========================================================================
+  # REQUIRE APPROVAL (Human in the loop)
+  # ========================================================================
+  
+  - rule_id: "require-approval-large-write"
+    description: "Require approval for large file writes"
+    priority: 50
+    enabled: true
+    conditions:
+      - field: "action_type"
+        operator: "equals"
+        value: "file.write"
+      - field: "parameters.size"
+        operator: "greater_than"
+        value: 1000000  # 1 MB
+    action:
+      decision: "REQUIRE_APPROVAL"
+      reason: "Large file writes require human approval"
+      log_level: "INFO"
+      metadata:
+        approval_timeout: 300  # 5 minutes
+  
+  - rule_id: "require-approval-expensive-api"
+    description: "Require approval for expensive API calls"
+    priority: 50
+    enabled: true
+    conditions:
+      - field: "action_type"
+        operator: "equals"
+        value: "api.call"
+      - field: "parameters.estimated_cost"
+        operator: "greater_than"
+        value: 10.0  # $10 USD
+    action:
+      decision: "REQUIRE_APPROVAL"
+      reason: "Expensive API calls require approval"
+      log_level: "WARNING"
+      metadata:
+        approval_required_from: "finance-team"

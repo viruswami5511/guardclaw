@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guardclaw"
+version = "0.1.0"
+description = "Cryptographically signed, replay-protected evidence ledger for AI agents"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+authors = [
+    {name = "Rohan"}
+]
+keywords = ["ai", "agents", "cryptography", "audit", "ledger", "security", "accountability"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "cryptography>=41.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.urls]
+Repository = "https://github.com/rohan/guardclaw"
+
+[project.scripts]
+guardclaw = "guardclaw.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["guardclaw*"]
+exclude = ["tests*", "examples*", "docs*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"

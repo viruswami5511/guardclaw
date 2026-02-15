@@ -1,0 +1,12 @@
+{
+  "receipt_id": "receipt-001",
+  "proof_id": "REPLACE_WITH_PROOF_ID",
+  "observed_action_type": "file.read",
+  "observed_target": "/tmp/test.txt",
+  "observed_operation": "read",
+  "status": "SUCCESS",
+  "executed_at": "2026-02-06T01:30:00+05:30",
+  "executor_id": "executor-demo",
+  "error_message": null,
+  "signature": "WILL_BE_GENERATED"
+}

@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+wheels/
+pip-wheel-metadata/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# GuardClaw specific
+.guardclaw/
+test_*.py
+!tests/
+
+# Build artifacts
+*.whl
+*.tar.gz

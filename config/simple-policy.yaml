@@ -1,0 +1,44 @@
+# Simple GuardClaw Policy (for testing)
+
+name: "simple-test-policy"
+version: "1.0.0"
+description: "Simple policy for unit testing and demos"
+
+default_decision: "DENY"
+
+rules:
+  - rule_id: "allow-file-read"
+    description: "Allow all file reads"
+    priority: 10
+    conditions:
+      - field: "action_type"
+        operator: "equals"
+        value: "file.read"
+    action:
+      decision: "ALLOW"
+      reason: "File reads are safe"
+  
+  - rule_id: "allow-write-tmp"
+    description: "Allow writing to /tmp/"
+    priority: 10
+    conditions:
+      - field: "action_type"
+        operator: "equals"
+        value: "file.write"
+      - field: "target_resource"
+        operator: "contains"
+        value: "/tmp/"
+    action:
+      decision: "ALLOW"
+      reason: "Writing to temp directory is allowed"
+  
+  - rule_id: "deny-delete"
+    description: "Deny all file deletions"
+    priority: 100
+    conditions:
+      - field: "action_type"
+        operator: "equals"
+        value: "file.delete"
+    action:
+      decision: "DENY"
+      reason: "File deletion is disabled"

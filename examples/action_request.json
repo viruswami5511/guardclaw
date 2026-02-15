@@ -1,0 +1,11 @@
+{
+  "action_id": "action-001",
+  "agent_id": "agent-demo",
+  "action_type": "file.read",
+  "target_resource": "/tmp/test.txt",
+  "operation": "read",
+  "intent": "Read configuration file for demo",
+  "parameters": {
+    "size": 1024
+  }
+}
