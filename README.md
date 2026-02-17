@@ -12,7 +12,7 @@ It proves what was recorded.
 
 ---
 
-## ⚠️ Status: Alpha (v0.1.0)
+## Status: Alpha (v0.1.0)
 
 GuardClaw v0.1.0 is an **experimental accountability substrate**.
 
