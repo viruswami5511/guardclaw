@@ -4,15 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "guardclaw"
-version = "0.1.0"
-description = "Cryptographically signed, replay-protected evidence ledger for AI agents"
+version = "0.1.1"
+description = "Cryptographic evidence ledger for autonomous agent accountability"
 readme = "README.md"
 requires-python = ">=3.9"
-license = "Apache-2.0"
+license = {text = "Apache-2.0"}
 authors = [
-    {name = "Rohan"}
+    { name = "Rohan" }
 ]
-keywords = ["ai", "agents", "cryptography", "audit", "ledger", "security", "accountability"]
+keywords = [
+    "ai",
+    "agents",
+    "cryptography",
+    "audit",
+    "ledger",
+    "accountability",
+    "replay-protection",
+    "verification"
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -22,6 +31,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Topic :: Security :: Cryptography",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "License :: OSI Approved :: Apache Software License"
 ]
 
 dependencies = [
@@ -37,7 +47,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/rohan/guardclaw"
+Repository = "https://github.com/viruswami5511/guardclaw"
 
 [project.scripts]
 guardclaw = "guardclaw.cli.main:main"

@@ -1,15 +1,20 @@
-# GuardClaw Security Model (v0.1.0)
+# GuardClaw Security Model (v0.1.1)
 
-**Status:** Alpha  
-**Version:** 0.1.0  
+Status: Alpha  
+Version: 0.1.1
 
 ---
 
 ## Overview
 
-GuardClaw v0.1.0 is a cryptographically signed event ledger for AI accountability.
+GuardClaw v0.1.1 is a cryptographic evidence ledger for autonomous agent accountability.
 
-It detects tampering and replay within a ledger.
+It provides:
+
+- Signed event emission
+- Ledger-local nonce-based replay detection
+- Tamper-evident verification
+- Offline verifiability
 
 It does not enforce policy or prevent execution.
 
@@ -21,52 +26,32 @@ If private keys remain secure:
 
 - Signed events cannot be modified without detection
 - Events are cryptographically attributable
-- Replay within a ledger is detectable
+- Ledger-local replay is detectable
 - Verification can be performed offline
 
 ---
 
 ## Limitations
 
-GuardClaw v0.1.0 does NOT provide:
+GuardClaw v0.1.1 does NOT provide:
 
 - Durable replay protection
 - Hash chaining
 - Distributed consensus
-- Timestamp authority
-- Key rotation
+- Trusted timestamp authority
+- Key rotation mechanisms
 - Key compromise detection
 - File deletion detection
-- Enforcement engine
+- Enforcement or blocking logic
 
-Replay state is memory-local only.
-
-Keys are file-based.
-
-Timestamps rely on system clock.
+Replay state is memory-local only.  
+Timestamps rely on system clock.  
+Keys are file-based in v0.1.1.
 
 ---
 
-## Suitable Use Cases
+## Scope Boundary
 
-- Development environments
-- Internal tooling
-- Low-risk automation
-- Research prototypes
-
----
-
-## Not Suitable For
-
-- Financial settlement systems
-- Critical infrastructure
-- Regulatory-grade audit without additional controls
-- High-value adversarial environments
-
----
-
-## Disclosure
-
-GuardClaw v0.1.0 is experimental software.
-
-Use at your own risk.
+GuardClaw prioritizes verifiability over enforcement.  
+It proves what was recorded.  
+It does not prevent actions.

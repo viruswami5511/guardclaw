@@ -1,240 +1,140 @@
 # GuardClaw
 
-**Cryptographically signed, replay-protected evidence ledger for AI agents**
+Cryptographic evidence ledger for autonomous agent accountability
 
-GuardClaw records what AI agents do — and makes those records cryptographically verifiable.
+Autonomous systems require stronger guarantees than mutable logs can provide.  
+GuardClaw implements the minimal cryptographic properties required for replay-bound, verifiable agent evidence.  
+It serves as a reference implementation of the Replay-Bound Evidence model.
+
+GuardClaw records what AI agents do and makes those records cryptographically verifiable.
 
 It does not block execution.  
 It does not enforce policy.  
-It does not require SaaS.  
+It does not require SaaS infrastructure.  
 
-It proves what was recorded.
+It provides verifiable evidence of what was recorded.
+
+📄 Formal protocol specification: [docs/PROTOCOL.md](docs/PROTOCOL.md)
 
 ---
 
-## ⚠️ Status: Alpha (v0.1.0)
+## Status
 
-GuardClaw v0.1.0 is an **experimental accountability substrate**.
+Alpha (v0.1.1)
 
-It provides a minimal, strict, cryptographic event ledger with replay detection.
-
+GuardClaw v0.1.1 is experimental software.  
 Breaking changes may occur before v1.0.
 
+Appropriate for development, research, and low-risk automation.  
 Not recommended for high-risk production systems.
 
-See `SECURITY.md` and `THREAT_MODEL.md` for full scope boundaries.
+See [SECURITY.md](SECURITY.md) and [THREAT_MODEL.md](THREAT_MODEL.md) for explicit guarantees and limitations.
 
 ---
 
 ## What GuardClaw Provides
 
-- ✅ Ed25519 cryptographic signing  
-- ✅ Canonical JSON serialization  
-- ✅ Per-agent nonce-based replay detection  
-- ✅ Tamper-evident verification  
-- ✅ Offline verification (no network required)  
-- ✅ CLI replay inspection  
+- Ed25519 cryptographic signing  
+- Deterministic canonical JSON serialization  
+- Ledger-local nonce-based replay detection  
+- Tamper-evident verification  
+- Offline verification (no network required)  
+- CLI replay inspection  
 
 ---
 
 ## What GuardClaw Does NOT Provide
 
-- ❌ Policy enforcement  
-- ❌ Authorization engine  
-- ❌ Settlement or reconciliation logic  
-- ❌ Hash-chained ledger  
-- ❌ Durable replay memory  
-- ❌ Distributed consensus  
-- ❌ Key rotation system  
-- ❌ Timestamp authority  
+- Policy enforcement  
+- Authorization engine  
+- Settlement or reconciliation logic  
+- Hash-chained ledger structure  
+- Durable replay state across restarts  
+- Distributed consensus  
+- Key rotation management  
+- Trusted timestamp authority  
 
-GuardClaw is an evidence layer — not a control plane.
+GuardClaw is an evidence layer, not a control plane.
+
+---  
+
+See [SECURITY.md](SECURITY.md) and [THREAT_MODEL.md](THREAT_MODEL.md) for full analysis.
 
 ---
 
-# Installation
+## Testing
+
+Run replay protection tests:
 
 ```bash
-pip install guardclaw
-
-For development:
-git clone https://github.com/YOUR_USERNAME/guardclaw.git
-cd guardclaw
-pip install -e .
-
-
-Quick Start
-1️⃣ Generate a Signing Key
-from guardclaw.core.crypto import Ed25519KeyManager
-
-key_manager = Ed25519KeyManager.generate()
-
-
-2️⃣ Start an Evidence Emitter
-from guardclaw.core.emitter import EvidenceEmitter
-
-emitter = EvidenceEmitter(
-    key_manager=key_manager,
-    ledger_path=".guardclaw/ledger"
-)
-
-emitter.start()
-
-
-3️⃣ Observe Agent Actions
-from guardclaw.core.observers import Observer
-
-observer = Observer("observer-1")
-observer.set_emitter(emitter)
-
-observer.on_intent("agent-1", "analyze_data")
-observer.on_execution("agent-1", "analyze_data")
-observer.on_result("agent-1", "analyze_data", "completed")
-
-Each event:
-
-Receives a cryptographically secure 32-hex nonce
-Is serialized canonically
-Is signed using Ed25519
-Is appended to the ledger
-
-
-4️⃣ Stop the Emitter
-emitter.stop()
-
-Ledger is written to:
-.guardclaw/ledger/
-
-Each line is a signed event (JSONL).
-
-Verify a Ledger
-GuardClaw provides a CLI replay command:
-guardclaw replay .guardclaw/ledger
-
-Replay performs:
-
-Schema validation
-Nonce validation
-Canonical JSON reconstruction
-Signature verification
-Replay detection (per-agent)
-
-Example output:
-============================================================
-GuardClaw Replay
-============================================================
-
-10:30:45.123 │ INTENT      │ agent-1 │ analyze_data │ ✅ VALID
-10:30:45.234 │ EXECUTION   │ agent-1 │ analyze_data │ ✅ VALID
-10:30:45.345 │ RESULT      │ agent-1 │ analyze_data │ ✅ VALID
-
-Summary:
-Total events: 3
-Valid: 3
-Invalid: 0
-Replays detected: 0
-
-Verification can be performed offline using only:
-
-The ledger file
-The public key
-
-
-Protocol Overview (v0.1.0)
-Each event has this schema:
-{
-    "event_id": str,
-    "timestamp": str,          # ISO 8601 UTC
-    "event_type": str,
-    "subject_id": str,
-    "action": str,
-    "nonce": str,              # REQUIRED (32 hex characters)
-    "correlation_id": str | None,
-    "metadata": dict | None
-}
-
-Nonce requirements:
-
-MUST exist
-MUST be 32 hexadecimal characters
-MUST be unique per subject_id
-
-Duplicate nonce within same subject_id is considered replay.
-Replay detection is memory-local in v0.1.0.
-See PROTOCOL.md for full specification.
-
-Security Model (Short Version)
-GuardClaw Guarantees
-If private keys are secure:
-
-Signed events cannot be modified without detection
-Events are cryptographically attributable
-Same-ledger replay is detectable
-Verification fails loudly on tampering
-Verification works offline
-
-GuardClaw Does NOT Guarantee
-
-Prevention of malicious behavior
-Durable replay protection across restarts
-Cross-system replay prevention
-Trusted timestamps
-File deletion detection
-Protection against stolen keys
-
-Full analysis: SECURITY.md and THREAT_MODEL.md
-
-Testing
-Run replay protection tests:
 python -m pytest tests/unit/test_replay_protection.py -v
+```
 
-Expected:
+Expected result:
+
+```text
 16 passed
+```
 
+---
 
-Roadmap (Non-Binding)
+## Roadmap
+
 Planned future areas:
 
-Hash chaining
-Durable replay protection
-Key rotation audit events
-External timestamp anchoring
-Delegated authority model
+- Hash chaining  
+- Durable replay protection  
+- Key rotation audit events  
+- External timestamp anchoring  
+- Delegated authority model  
 
-These are not part of v0.1.0 guarantees.
+These are not part of v0.1.1 guarantees.
 
-When to Use GuardClaw (v0.1.0)
-Appropriate:
+---
 
-Development environments
-Internal AI tooling
-Research prototypes
-Low-risk automation
-Audit experiments
+## When to Use GuardClaw (v0.1.1)
 
-Not appropriate:
+*Appropriate for:*
 
-Financial systems
-Critical infrastructure
-Legal compliance use cases
-Long-term archival
-High-risk autonomous agents
+- Development environments  
+- Internal AI tooling  
+- Research prototypes  
+- Low-risk automation  
+- Audit experimentation  
 
+*Not recommended for production use in:*
 
-Contributing
-Contributions welcome.
+- Financial settlement systems  
+- Critical infrastructure  
+- Regulatory-grade audit without additional controls  
+- Long-term archival systems  
+- High-risk autonomous systems  
+
+---
+
+## Contributing
+
+Contributions are welcome.
+
 Before submitting:
 
-Read PROTOCOL.md
-Read SECURITY.md
-Include tests
-Avoid expanding guarantees beyond documented scope
+- Read [PROTOCOL.md](docs/PROTOCOL.md)  
+- Read [SECURITY.md](SECURITY.md)  
+- Include tests  
+- Avoid expanding guarantees beyond documented scope  
 
+---
 
-License
+## License
+
 Apache-2.0
 
-Philosophy
+---
+
+## Philosophy
+
 GuardClaw does not promise perfect safety.
-It promises cryptographic evidence of what was recorded.
+
+It provides cryptographic evidence of what was recorded.
+
 Nothing more. Nothing less.

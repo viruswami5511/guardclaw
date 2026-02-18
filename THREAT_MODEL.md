@@ -1,224 +1,227 @@
-# GuardClaw Threat Model
+# GuardClaw Threat Model (v0.1.1)
 
-**Document status:** Canonical (v0.1.0)  
-**Audience:** Security reviewers, contributors, early adopters  
-**Scope:** Cryptographically signed event emission and replay verification  
+Status: Alpha  
+Audience: Security reviewers, contributors, early adopters  
+Scope: Cryptographically signed event emission and ledger-local replay verification  
 
 ---
 
-## 0. Purpose of This Document
+## 1. Purpose
 
-GuardClaw v0.1.0 is a **verifiable event logging substrate**.
+GuardClaw v0.1.1 is a cryptographic evidence ledger for autonomous agent accountability.
 
 It provides:
 
-- Cryptographically signed event records
-- Tamper detection via signature verification
-- Per-agent nonce-based replay detection
+- Signed event emission
+- Deterministic canonical serialization
+- Ledger-local nonce-based replay detection
+- Tamper-evident verification
 - Offline verification via CLI
 
-It does **not** implement policy enforcement, distributed consensus,
-delegation chains, or durable replay state.
+It does not implement:
 
-This document defines what GuardClaw v0.1.0:
+- Policy enforcement
+- Distributed consensus
+- Delegation chains
+- Durable replay state
+- Hash chaining
+- Immutable storage guarantees
 
-- Guarantees
-- Detects
-- Cannot protect against
+This document defines:
+
+- What GuardClaw guarantees
+- What it detects
+- What is explicitly out of scope
 
 ---
 
-## 1. Security Model (v0.1.0)
+## 2. Security Model Summary
 
-### What GuardClaw Guarantees
+### If private keys remain secure:
 
-If evidence exists and private keys are secure:
+GuardClaw guarantees:
 
 1. **Event Integrity**
    - Signed events cannot be modified without detection.
 
-2. **Attribution**
-   - Events are cryptographically bound to a signing key.
+2. **Cryptographic Attribution**
+   - Events are bound to a signing key.
 
-3. **Replay Detection (Ledger-Local)**
-   - Duplicate nonces for the same agent are detectable during replay.
+3. **Ledger-Local Replay Detection**
+   - Duplicate nonces for the same `subject_id` are detectable during verification.
 
 4. **Offline Verifiability**
-   - Anyone with the public key can verify signatures offline.
+   - Anyone with the public key can verify signatures without network access.
 
-5. **Tamper Evidence**
-   - Signature failure results in explicit verification error.
+5. **Loud Failure**
+   - Signature or schema violations result in explicit verification errors.
 
 ---
 
-### What GuardClaw Does NOT Guarantee
+## 3. Explicit Non-Guarantees
 
-GuardClaw v0.1.0 does not guarantee:
+GuardClaw v0.1.1 does NOT guarantee:
 
 - Prevention of malicious actions
-- Enforcement of policy decisions
+- Authorization correctness
 - Durable replay protection across restarts
 - Cross-ledger replay prevention
 - Distributed consensus
-- Absolute timestamp correctness
-- Protection against stolen private keys
+- Trusted timestamp authority
 - File deletion detection
-- Immutable storage
-- Recovery from root key loss
+- Protection against stolen private keys
+- Recovery from root key compromise
+- Immutable storage guarantees
 
-These are intentional scope boundaries.
+These boundaries are intentional.
 
 ---
 
-## 2. Threat Classification
+## 4. Threat Classification
 
 Each scenario is categorized as:
 
-- ✅ Prevented by design  
-- ⚠️ Detectable but not prevented  
-- ❌ Out of scope  
+- ✅ Prevented by design
+- ⚠️ Detectable but not prevented
+- ❌ Out of scope
 
 ---
 
-## 3. Threat Scenarios
+## 5. Threat Scenarios
 
 ---
 
-### 3.1 Event Tampering
+### 5.1 Event Tampering
 
-**Scenario**  
+**Scenario:**  
 An attacker modifies event data after it is signed.
 
 **Classification:** ✅ Prevented by design
 
-**Reason**  
+**Reason:**  
 Any modification invalidates the Ed25519 signature.
 
 ---
 
-### 3.2 Replay Within Same Ledger
+### 5.2 Ledger-Local Replay
 
-**Scenario**  
+**Scenario:**  
 An attacker re-inserts an old signed event into the same ledger.
 
 **Classification:** ⚠️ Detectable but not prevented
 
-**Reason**  
-Duplicate nonces per agent are flagged during replay.
+**Reason:**  
+Duplicate nonces for the same `subject_id` are detected during verification.
 
-**Limitation**  
-Replay detection is per-ledger and not durable across restarts.
+**Limitation:**  
+Replay tracking is memory-local and not durable across restarts.
 
 ---
 
-### 3.3 Replay Across Systems
+### 5.3 Cross-System Replay
 
-**Scenario**  
-An attacker replays a valid signed event to a different system.
+**Scenario:**  
+A valid signed event is replayed in a different system or ledger.
 
 **Classification:** ❌ Out of scope
 
-**Reason**  
-Nonce tracking is ledger-local only.
+**Reason:**  
+Nonce tracking is scoped to a single ledger only.
 
 ---
 
-### 3.4 Timestamp Manipulation
+### 5.4 Timestamp Manipulation
 
-**Scenario**  
-An operator alters system clock before emitting events.
+**Scenario:**  
+System clock is altered before emitting events.
 
 **Classification:** ⚠️ Detectable but not prevented
 
-**Reason**  
+**Reason:**  
 GuardClaw guarantees signature integrity, not wall-clock truth.
 
+No external timestamp authority is used in v0.1.1.
+
 ---
 
-### 3.5 Key Compromise
+### 5.5 Private Key Compromise
 
-**Scenario**  
-An attacker steals a private signing key.
+**Scenario:**  
+An attacker gains access to the private signing key.
 
 **Classification:** ❌ Out of scope
 
-**Reason**  
-Valid signatures cannot distinguish when signing occurred.
+**Reason:**  
+Valid signatures cannot distinguish legitimate signing from malicious signing after compromise.
 
-Mitigation requires key rotation and external controls.
+Mitigation requires external key management and rotation controls.
 
 ---
 
-### 3.6 File Deletion
+### 5.6 File Deletion
 
-**Scenario**  
-An attacker deletes entire ledger files.
+**Scenario:**  
+Entire ledger files are deleted.
 
 **Classification:** ❌ Out of scope
 
-**Reason**  
-v0.1.0 does not implement hash chaining or Merkle structures.
+**Reason:**  
+v0.1.1 does not implement hash chaining or Merkle-based continuity proofs.
+
+Deletion is not detectable.
 
 ---
 
-### 3.7 Disk Full / Write Failure
+### 5.7 Disk Exhaustion / Write Failure
 
-**Scenario**  
-Ledger write fails due to resource exhaustion.
+**Scenario:**  
+Ledger writes fail due to resource exhaustion.
 
 **Classification:** ⚠️ Detectable but not prevented
 
-**Reason**  
-Subsequent verification reveals missing evidence window.
+**Reason:**  
+Missing evidence becomes visible during later verification.
+
+GuardClaw does not implement guaranteed persistence.
 
 ---
 
-### 3.8 Cryptographic Library Vulnerability
+### 5.8 Cryptographic Primitive Failure
 
-**Scenario**  
-Ed25519 implementation flaw is discovered.
+**Scenario:**  
+A vulnerability is discovered in Ed25519 or underlying cryptographic library.
 
 **Classification:** ❌ Out of scope
 
-**Reason**  
-All cryptographic systems inherit underlying algorithm risk.
+**Reason:**  
+All cryptographic systems inherit the risk of underlying algorithm or implementation failure.
 
 ---
 
-## 4. Summary Table
+## 6. Summary Table
 
-| Threat | Classification |
-|--------|---------------|
-| Event tampering | ✅ Prevented |
-| Same-ledger replay | ⚠️ Detectable |
-| Cross-system replay | ❌ Out of scope |
-| Timestamp manipulation | ⚠️ Detectable |
-| Key compromise | ❌ Out of scope |
-| File deletion | ❌ Out of scope |
-| Disk exhaustion | ⚠️ Detectable |
-| Crypto library flaw | ❌ Out of scope |
+| Threat                      | Classification  |
+|-----------------------------|---------------- |
+| Event tampering             | ✅ Prevented    |
+| Ledger-local replay         | ⚠️ Detectable   |
+| Cross-system replay         | ❌ Out of scope |
+| Timestamp manipulation      | ⚠️ Detectable   |
+| Key compromise              | ❌ Out of scope |
+| File deletion               | ❌ Out of scope |
+| Disk exhaustion             | ⚠️ Detectable   |
+| Cryptographic primitive flaw| ❌ Out of scope |
 
 ---
 
-## 5. Design Philosophy (v0.1.0)
+## 7. Design Philosophy
 
 GuardClaw prioritizes:
 
+- Explicit guarantees over broad claims
 - Cryptographic integrity over enforcement
-- Explicit limitations over marketing claims
-- Offline verifiability over convenience
-- Narrow, correct guarantees over broad promises
+- Offline verifiability over operational complexity
+- Narrow, correct guarantees over speculative assurances
 
----
+GuardClaw proves what was recorded.
 
-## 6. Final Statement
-
-GuardClaw v0.1.0 provides:
-
-Provable integrity of signed events and ledger-local replay detection.
-
-It does not claim to solve authorization, enforcement, consensus,
-or distributed trust.
-
-Future versions may extend these capabilities.
-v0.1.0 does not.
+It does not prevent actions.
