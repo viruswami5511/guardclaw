@@ -1,4 +1,4 @@
-# GuardClaw Threat Model (v0.1.1)
+# GuardClaw Threat Model (v0.1.2)
 
 Status: Alpha  
 Audience: Security reviewers, contributors, early adopters  
@@ -8,7 +8,7 @@ Scope: Cryptographically signed event emission and ledger-local replay verificat
 
 ## 1. Purpose
 
-GuardClaw v0.1.1 is a cryptographic evidence ledger for autonomous agent accountability.
+GuardClaw v0.1.2 is a cryptographic evidence ledger for autonomous agent accountability.
 
 It provides:
 
@@ -60,7 +60,7 @@ GuardClaw guarantees:
 
 ## 3. Explicit Non-Guarantees
 
-GuardClaw v0.1.1 does NOT guarantee:
+GuardClaw v0.1.2 does NOT guarantee:
 
 - Prevention of malicious actions
 - Authorization correctness
@@ -140,7 +140,7 @@ System clock is altered before emitting events.
 **Reason:**  
 GuardClaw guarantees signature integrity, not wall-clock truth.
 
-No external timestamp authority is used in v0.1.1.
+No external timestamp authority is used in v0.1.2.
 
 ---
 
@@ -166,7 +166,7 @@ Entire ledger files are deleted.
 **Classification:** ❌ Out of scope
 
 **Reason:**  
-v0.1.1 does not implement hash chaining or Merkle-based continuity proofs.
+v0.1.2 does not implement hash chaining or Merkle-based continuity proofs.
 
 Deletion is not detectable.
 
