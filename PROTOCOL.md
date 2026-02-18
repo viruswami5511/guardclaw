@@ -1,4 +1,4 @@
-# GuardClaw Protocol Specification (v0.1.1)
+# GuardClaw Protocol Specification (v0.1.2)
 
 Status: Alpha
 
@@ -16,7 +16,7 @@ It provides:
 - Tamper-evident verification
 - Offline verifiability
 
-GuardClaw v0.1.1 does NOT implement:
+GuardClaw v0.1.2 does NOT implement:
 
 - Policy enforcement
 - Authorization engines
@@ -78,7 +78,7 @@ Any modification invalidates the signature.
 
 ## 5. Replay Detection
 
-Replay detection in v0.1.1 is nonce-based.
+Replay detection in v0.1.2 is nonce-based.
 
 *Rules:*
 * Nonce uniqueness is scoped per subject_id.
@@ -96,7 +96,7 @@ No Merkle tree
 No sequence numbers
 
 Ledger integrity relies solely on signature verification.
-File deletion is not detectable in v0.1.1.
+File deletion is not detectable in v0.1.2.
 
 
 ## 7. Verification Model
