@@ -18,7 +18,9 @@ It provides verifiable evidence of what was recorded.
 
 ---
 
-## Status
+
+## Status: Alpha (v0.1.0)
+
 
 Alpha (v0.1.1)
 
