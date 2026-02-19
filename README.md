@@ -1,5 +1,20 @@
 # GuardClaw
 
+## 📄 Research Paper
+
+**Replay-Bound Evidence: Cryptographic Accountability for Autonomous AI Systems**
+
+A formal discussion draft proposing a cryptographic framework for auditable,
+tamper-evident logging in autonomous AI agents.
+
+- 📖 [Read the paper](docs/replay-bound-evidence-v1.0.md)
+- 🏷️ Tagged release: `paper-v1.0`
+
+> This paper introduces the concept of *Replay-Bound Evidence* — a mechanism
+> to ensure every AI action is signed, chained, and verifiable against replay attacks.
+
+---
+
 Cryptographic evidence ledger for autonomous agent accountability
 
 Autonomous systems require stronger guarantees than mutable logs can provide.  
