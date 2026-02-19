@@ -404,21 +404,21 @@ A minimal event record (aligned with GuardClaw v0.1.x semantics):
 
 {
 
-&nbsp; "event\_id": "uuid-string",
+"event\_id": "uuid-string",
 
-&nbsp; "timestamp": "2026-02-16T10:00:00Z",
+"timestamp": "2026-02-16T10:00:00Z",
 
-&nbsp; "event\_type": "intent | execution | result | failure",
+"event\_type": "intent | execution | result | failure",
 
-&nbsp; "subject\_id": "agent-finance-01",
+"subject\_id": "agent-finance-01",
 
-&nbsp; "action": "EXECUTE\_TRADE",
+"action": "EXECUTE\_TRADE",
 
-&nbsp; "nonce": "32-hex-character-string",
+"nonce": "32-hex-character-string",
 
-&nbsp; "correlation\_id": "optional-string-or-null",
+"correlation\_id": "optional-string-or-null",
 
-&nbsp; "metadata": { "optional": "object-or-null" }
+"metadata": { "optional": "object-or-null" }
 
 }
 
