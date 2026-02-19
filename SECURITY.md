@@ -1,10 +1,17 @@
 
 # GuardClaw Security Model (v0.1.2)
+<<<<<<< HEAD
 
 Status: Alpha  
 Version: 0.1.2
 
 
+=======
+Status: Alpha
+
+Overview
+
+>>>>>>> b65cac0bfdd07ecf5ffb4def2c9c66b650af2cdb
 GuardClaw v0.1.2 is a cryptographically signed event ledger for AI agent accountability.
 It provides tamper detection and replay detection within a ledger.
 GuardClaw is an accountability layer. It observes and proves. It does not enforce policy or block execution.
