@@ -1,15 +1,10 @@
 \# GuardClaw Deployment Guide
 
 
-
-\*\*Document Version:\*\* 1.0  
-
-\*\*Protocol Version:\*\* 3.0 (Phase 5)  
-
-\*\*Status:\*\* OPERATIONAL GUIDE  
-
-\*\*Last Updated:\*\* February 10, 2026
-
+**Document Version:** 1.0
+**Protocol Version:** GuardClaw v0.1.x
+**Status:** OPERATIONAL GUIDE
+**Last Updated:** February 10, 2026
 
 
 ---
@@ -331,7 +326,7 @@ chmod 600 guardclaw/keys/agent-001.key
 
 
 
-
+> ⚠️ AgentRegistration is planned for Level 3–4. Not available in v0.1.x.
 Step 5: Register Agent
 
 from guardclaw.core.genesis import AgentRegistration
@@ -350,7 +345,7 @@ agent = AgentRegistration.create(
 
 &nbsp;   agent\_key\_manager=agent\_key,
 
-&nbsp;   capabilities=\["file:read", "file:write"],
+&nbsp;   capabilities=\["file:read", "file:write"], 
 
 &nbsp;   valid\_from="2026-02-10T00:00:00Z",
 
@@ -435,14 +430,6 @@ ledger/
 &nbsp;   ├── result.jsonl
 
 &nbsp;   ├── failure.jsonl
-
-&nbsp;   ├── delegation.jsonl
-
-&nbsp;   ├── heartbeat.jsonl
-
-&nbsp;   └── tombstone.jsonl
-
-
 
 
 
@@ -742,5 +729,4 @@ Document Status: FINAL
 
 Applies To: Phase 5+
 
-Next: OPERATIONAL RUNBOOK
 
