@@ -1,5 +1,9 @@
 # GuardClaw
 
+**DOI:** https://zenodo.org/records/18712808
+**Published:** 2026-02-20  
+**License:** CC-BY 4.0 (paper) / Apache 2.0 (code)
+
 ## 📄 Research Paper
 
 **Replay-Bound Evidence: Cryptographic Accountability for Autonomous AI Systems**
