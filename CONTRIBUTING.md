@@ -113,10 +113,8 @@ Open an issue to discuss first.
 3\. For bugs: include Python version, OS, and exact command that failed
 
 4\. For protocol critique: reference the specific section of
-
-&nbsp;  \[PROTOCOL.md](docs/PROTOCOL.md) or the
-
-&nbsp;  \[paper](docs/replay-bound-evidence-v1.0.md)
+   [PROTOCOL.md](docs/PROTOCOL.md) or the
+   [paper](docs/replay-bound-evidence-v1.0.md)
 
 
 
@@ -202,9 +200,7 @@ from public discussion.
 
 
 
-Open an issue or start a
-
-\[GitHub Discussion](https://github.com/viruswami5511/guardclaw/discussions).
+Open a [GitHub Issue](https://github.com/viruswami5511/guardclaw/issues).
 
 
 
@@ -212,9 +208,4 @@ Open an issue or start a
 
 
 
-\*GuardClaw is maintained by
-
-\[Viru Swami](https://github.com/viruswami5511).\*
-
-
-
+*GuardClaw is maintained by [Viru Swami](https://github.com/viruswami5511).*
