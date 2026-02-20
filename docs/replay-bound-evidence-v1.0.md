@@ -566,16 +566,16 @@ blockchain-based approaches: RBE provides the tamper-evident local event record 
 Replay-Bound Evidence does not require distributed consensus.
 
 
+More specifically, RBE requires none of the following, unlike blockchain systems:
 
-Unlike blockchain systems:
 
-\- No global agreement mechanism
+\- Global agreement mechanism
 
-\- No proof-of-work or proof-of-stake
+\- Proof-of-work or proof-of-stake
 
-\- No network-wide state
+\- Network-wide state
 
-\- No economic consensus layer
+\- Economic consensus layer
 
 
 
@@ -678,7 +678,7 @@ External timestamp authorities, key rotation audit trails, genesis identity anch
 \### 10.1 Regulatory Evolution
 
 
-Emerging regulatory frameworks increasingly require traceability and integrity controls for high-risk AI systems. EU AI Act Article 12 requires automatic logging over system lifetime; Article 15 requires tamper resistance. Level 2 RBE satisfies both requirements with no distributed infrastructure.
+Emerging regulatory frameworks increasingly require traceability and integrity controls for high-risk AI systems. EU AI Act Article 12 requires automatic logging over system lifetime and imposes record-keeping obligations for high-risk AI systems. Level 2 RBE satisfies the technical intent of these requirements with no distributed infrastructure.
 
 
 
