@@ -3,11 +3,11 @@
 \## Cryptographic Accountability for Autonomous AI Systems
 
 
-
-\*\*Version:\*\* 1.0 (Public Discussion Draft)  
-
-\*\*Author:\*\* GuardClaw Project
-
+**Version:** 1.0 (Public Discussion Draft)  
+**Author:** GuardClaw Project  
+**DOI:** https://zenodo.org/records/18712808  
+**Published:** 2026-02-20  
+**Archived:** https://web.archive.org/web/20260220125746/https://github.com/viruswami5511/guardclaw/blob/master/docs/replay-bound-evidence-v1.0.md 
 
 
 ---
@@ -587,6 +587,12 @@ This is \*\*ledger-local integrity\*\*, not global consensus.
 
 
 \## 8. Relation to Existing Work
+
+Contemporaneous work includes the Cryptographic Audit Protocol (CAP) v1.0 [VeritasChain Standards Organization, January 2026], which addresses AI safety
+*refusal* provenance using SHA-256 hash chains, RFC 6962 Merkle trees, and RFC 3161 external timestamping. Replay-Bound Evidence differs in scope (agent
+*action* accountability vs. refusal compliance), introduces the subject-scoped replay invariant as a minimal formal property, and requires no distributed
+infrastructure at Level 2. The two frameworks are complementary rather than competing: CAP addresses what was refused; Replay-Bound Evidence addresses 
+what was executed.
 
 
 
