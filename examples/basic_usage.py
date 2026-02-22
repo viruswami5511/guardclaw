@@ -1,13 +1,11 @@
 """
-GuardClaw Phase 5: Basic Usage Example
+GuardClaw: Basic Usage Example
 
 Demonstrates:
 - Ghost mode setup (zero ceremony)
 - Agent observation
 - Tool wrapping
 - Evidence replay
-
-This is the "2 minutes at 2 AM" experience.
 """
 
 import time
@@ -21,7 +19,7 @@ def main():
     """Basic GuardClaw usage."""
     
     print("="*60)
-    print("GuardClaw Phase 5: Basic Usage Example")
+    print("GuardClaw: Basic Usage Example")
     print("="*60)
     print()
     
@@ -94,12 +92,11 @@ def main():
     print("✅ Emitter stopped gracefully")
     print()
     
-    # 6️⃣ Replay (optional - demonstrates selfish benefit)
-    print("6️⃣ Replaying evidence (optional)...")
+    # 6️⃣ Replay evidence
+    print("6️⃣ Replaying evidence...")
     print()
     
     # Note: In real usage, you would load from evidence bundle
-    # For demo, we just show the concept
     print("  📊 Evidence timeline:")
     print("    14:30:00 │ 💭 INTENT: Calculate sum")
     print("    14:30:01 │ ⚡ EXECUTION: math:sum_range")

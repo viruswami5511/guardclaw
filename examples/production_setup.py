@@ -1,13 +1,11 @@
 """
-GuardClaw Phase 5: Production Setup Example
+GuardClaw: Production Setup Example
 
 Demonstrates:
 - Strict mode setup
 - Explicit genesis creation
 - Agent registration
 - Production-grade evidence emission
-
-This is the "bulletproof in court" experience.
 """
 
 import json
@@ -23,7 +21,7 @@ def setup_production():
     """Setup production GuardClaw environment."""
     
     print("="*60)
-    print("GuardClaw Phase 5: Production Setup")
+    print("GuardClaw: Production Setup")
     print("="*60)
     print()
     
@@ -173,7 +171,7 @@ def demo_production_usage(emitter, agent_key):
     print()
     print("✅ Production workflow complete")
     print("  Evidence signed and stored in ledger")
-    print("  Ready for audit or legal review")
+    print("  Ready for audit or review")
 
 
 if __name__ == "__main__":
