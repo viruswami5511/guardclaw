@@ -475,17 +475,9 @@ Meaning
 
 
 
-
-
-
-
-
-
 Heartbeats missing
 
 Observer failure
-
-
 
 
 
@@ -495,25 +487,15 @@ Backpressure
 
 
 
-
-
 Dropped events
 
 Overload
 
 
 
-
-
 Signature failures
 
 Crypto/key issue
-
-
-
-
-
-
 
 
 
@@ -532,12 +514,9 @@ assert stats\["total\_dropped"] == 0
 
 
 
-
 Backup Strategy (CRITICAL)
 
 Required Backups
-
-
 
 
 
@@ -552,11 +531,6 @@ Storage
 
 
 
-
-
-
-
-
 Genesis key
 
 Once + changes
@@ -565,15 +539,11 @@ Offline
 
 
 
-
-
 Agent keys
 
 On rotation
 
 Secure vault
-
-
 
 
 
@@ -592,10 +562,6 @@ Buffer
 Optional
 
 Local only
-
-
-
-
 
 
 
@@ -622,7 +588,6 @@ Old evidence remains valid
 No new agents can be registered
 
 New genesis required
-
 
 
 
@@ -716,7 +681,6 @@ Composable (works with existing systems)
 
 
 
-
 Deploy GuardClaw like logging infrastructure —
 
 but treat its keys like cryptographic assets.
@@ -724,9 +688,8 @@ but treat its keys like cryptographic assets.
 
 
 
-
 Document Status: FINAL
 
-Applies To: Phase 5+
+Applies To: GuardClaw v0.1.x+
 
 

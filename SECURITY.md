@@ -1,11 +1,11 @@
 # GuardClaw Security Model
 
 Status: Alpha  
-Version: 0.1.3
+Version: 0.1.4
 
 ## Overview
 
-GuardClaw v0.1.3 is a cryptographic evidence ledger for autonomous agent accountability.
+GuardClaw v0.1.4 is a cryptographic evidence ledger for autonomous agent accountability.
 
 It provides:
 
@@ -27,7 +27,7 @@ If private keys remain secure:
 
 ## Limitations
 
-GuardClaw v0.1.3 does NOT provide:
+GuardClaw v0.1.4 does NOT provide:
 
 * Durable replay protection across restarts
 * Hash chaining between ledger files
@@ -65,7 +65,7 @@ It does not prevent actions.
 
 ## Disclosure
 
-GuardClaw v0.1.3 is experimental software. It is intended as a foundational
+GuardClaw v0.1.4 is experimental software. It is intended as a foundational
 accountability layer, not a complete security system. Use additional controls
 where required.
 

@@ -46,7 +46,7 @@ https://github.com/viruswami5511/guardclaw/blob/master/THREAT_MODEL.md
 
 ## Status
 
-*Alpha (v0.1.3)*
+*Alpha (v0.1.4)*
 
 GuardClaw is experimental software.  
 Breaking changes may occur before v1.0.
@@ -175,7 +175,7 @@ Verification can be performed offline using only:
 
 ---
 
-## Protocol Overview (v0.1.3)
+## Protocol Overview (v0.1.4)
 
 Each event conforms to:
 
@@ -200,7 +200,7 @@ Each event conforms to:
 
 Duplicate nonce within the same subject is considered replay.
 
-Replay state in v0.1.3 is memory-local and not durable across restarts.
+Replay state in v0.1.4 is memory-local and not durable across restarts.
 
 See full specification:  
 https://github.com/viruswami5511/guardclaw/blob/master/docs/PROTOCOL.md
@@ -257,7 +257,7 @@ Planned future areas (non-binding):
 - External timestamp anchoring  
 - Delegated authority model  
 
-These are not part of v0.1.3 guarantees.
+These are not part of v0.1.4 guarantees.
 
 ---
 
