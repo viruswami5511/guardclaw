@@ -8,21 +8,21 @@ from pathlib import Path
 
 def main():
     """Main CLI entry point."""
-    
+
     if len(sys.argv) < 2:
         print_usage()
         return
-    
+
     command = sys.argv[1]
-    
+
     if command == "replay":
         replay_command()
     elif command == "version":
         version_command()
-    elif command == "help":
+    elif command in ("help", "--help", "-h"):
         print_usage()
     else:
-        print(f"❌ Unknown command: {command}")
+        print(f"Unknown command: {command}")
         print()
         print_usage()
         sys.exit(1)
@@ -30,10 +30,10 @@ def main():
 
 def print_usage():
     """Print CLI usage."""
-    print("GuardClaw CLI v0.1.0")
+    print("GuardClaw CLI v0.1.2")
     print()
     print("Usage:")
-    print("  guardclaw replay <ledger-path>   Replay evidence timeline")
+    print("  guardclaw replay <ledger-path>   Verify evidence ledger")
     print("  guardclaw version                Show version")
     print("  guardclaw help                   Show this help")
     print()
@@ -43,8 +43,8 @@ def print_usage():
 
 def version_command():
     """Show version."""
-    print("GuardClaw v0.1.0")
-    print("Phase 5.1: Observer Model + Async Emission + Replay Protection")
+    print("GuardClaw v0.1.2")
+    print("Cryptographic evidence ledger for autonomous agent accountability")
 
 
 def replay_command():
