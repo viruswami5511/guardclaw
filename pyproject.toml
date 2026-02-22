@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "Apache-2.0"}
 authors = [
-    { name = "Viru" }
+    { name = "Viru Swami", email = "viruswami5511@gmail.com" }
 ]
 keywords = [
     "ai",
@@ -48,6 +48,8 @@ dev = [
 
 [project.urls]
 Repository = "https://github.com/viruswami5511/guardclaw"
+Homepage = "https://github.com/viruswami5511/guardclaw"
+Documentation = "https://github.com/viruswami5511/guardclaw/blob/master/docs/replay-bound-evidence-v1.0.md"
 
 [project.scripts]
 guardclaw = "guardclaw.cli.main:main"
