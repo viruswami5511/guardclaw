@@ -30,7 +30,7 @@ def main():
 
 def print_usage():
     """Print CLI usage."""
-    print("GuardClaw CLI v0.1.2")
+    print("GuardClaw CLI v0.1.3")
     print()
     print("Usage:")
     print("  guardclaw replay <ledger-path>   Verify evidence ledger")
@@ -43,7 +43,7 @@ def print_usage():
 
 def version_command():
     """Show version."""
-    print("GuardClaw v0.1.2")
+    print("GuardClaw v0.1.3")
     print("Cryptographic evidence ledger for autonomous agent accountability")
 
 
