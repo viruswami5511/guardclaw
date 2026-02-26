@@ -1,326 +1,338 @@
 """
-GuardClaw Phase 5: Evidence Emitter
+guardclaw/core/emitter.py
 
-Async evidence emission with:
-- Non-blocking queue
-- Batch signing
-- Write-ahead buffer (crash recovery)
-- Graceful degradation
+GEF Ledger — v0.2.0
+Aligned to: GEF-SPEC-v1.0
+
+GEF Contract — emit() MUST, in this exact order:
+  1. Acquire lock
+  2. Call ExecutionEnvelope.create(record_type, agent_id, signer_public_key,
+                                   sequence, payload, prev=last_envelope)
+  3. Call envelope.sign(key_manager)
+  4. Assert chain invariants  — causal_hash, sequence
+  5. Append to JSONL ledger   — atomic OS write
+  6. Advance internal state   — only after confirmed write
+  7. Return signed envelope   — signature is GUARANTEED non-empty
+
+Signature MUST exist before emit() returns.
+No background threads. No batching. No deferred signing.
+No SCHEMA_VERSION. No ledger_id field. No monotonic nonce.
+Nonce is 32-char random hex — generated inside ExecutionEnvelope.create().
+
+Drift check — this file must NOT:
+  - Import SCHEMA_VERSION
+  - Import gef_timestamp from models (it lives in core/time.py)
+  - Construct ExecutionEnvelope() directly (use .create() only)
+  - Compute causal_hash outside models.py
+  - Compute canonical bytes outside canonical.py
 """
 
 import json
 import threading
-import time
+import warnings
 from pathlib import Path
-from queue import Queue, Full, Empty
-from typing import Optional, Dict, Any
-from datetime import datetime, timezone
-from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
-from guardclaw.core.crypto import Ed25519KeyManager, canonical_json_encode
-from guardclaw.core.observers import ObservationEvent
-
-
-@dataclass
-class SignedObservation:
-    """Signed observation event."""
-    event: ObservationEvent
-    signature: str
-    accountability_lag_ms: float
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "event": self.event.to_dict(),
-            "signature": self.signature,
-            "accountability_lag_ms": self.accountability_lag_ms
-        }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SignedObservation":
-        return cls(
-            event=ObservationEvent.from_dict(data["event"]),
-            signature=data["signature"],
-            accountability_lag_ms=data["accountability_lag_ms"]
-        )
+from guardclaw.core.canonical import canonical_json_encode
+from guardclaw.core.crypto import Ed25519KeyManager
+from guardclaw.core.models import (
+    ExecutionEnvelope,
+    GEF_VERSION,
+    GENESIS_HASH,
+    RecordType,
+)
 
 
-class WriteAheadBuffer:
+class GEFLedger:
     """
-    Write-ahead buffer for crash recovery.
-    
-    Events are written to pending.jsonl immediately.
-    After signing, moved to signed.jsonl and removed from pending.
+    GEF-compliant synchronous evidence ledger.
+
+    Maintains per-ledger chain state:
+        _sequence        — monotonically increasing integer (0, 1, 2, ...)
+        _last_envelope   — the last ExecutionEnvelope appended (or None)
+
+    Nonce is generated inside ExecutionEnvelope.create() as 32-char random hex.
+    This class never touches nonce directly.
+
+    Thread-safe via internal lock (single-process only).
+    State survives process restart by replaying the ledger file on __init__.
     """
-    
-    def __init__(self, buffer_dir: Path):
-        self.buffer_dir = Path(buffer_dir)
-        self.buffer_dir.mkdir(parents=True, exist_ok=True)
-        
-        self.pending_file = self.buffer_dir / "pending.jsonl"
-        self.signed_file = self.buffer_dir / "signed.jsonl"
-    
-    def append_pending(self, event: ObservationEvent) -> None:
-        """Append event to pending buffer (best-effort)."""
+
+    def __init__(
+        self,
+        key_manager:  Ed25519KeyManager,
+        agent_id:     str,
+        ledger_path:  str = ".guardclaw/ledger",
+    ) -> None:
+        self.key_manager = key_manager
+        self.agent_id    = agent_id
+
+        self._lock:          threading.Lock              = threading.Lock()
+        self._sequence:      int                         = 0
+        self._last_envelope: Optional[ExecutionEnvelope] = None
+
+        self._ledger_dir  = Path(ledger_path)
+        self._ledger_dir.mkdir(parents=True, exist_ok=True)
+        self._ledger_file = self._ledger_dir / "ledger.jsonl"
+
+        self._restore_state()
+
+    # ── Public API ────────────────────────────────────────────
+
+    def emit(
+        self,
+        record_type: str,
+        payload:     Dict[str, Any],
+        agent_id:    Optional[str] = None,
+    ) -> ExecutionEnvelope:
+        """
+        Emit one GEF-compliant signed ExecutionEnvelope.
+
+        Signs synchronously. Signature is guaranteed non-empty on return.
+        Raises RuntimeError on any invariant violation or write failure.
+        Caller must treat a raised exception as a hard failure.
+
+        Args:
+            record_type: Must be a RecordType constant.
+            payload:     Record content. Must be JSON-serializable dict.
+            agent_id:    Override ledger's default agent_id for this record.
+
+        Returns:
+            Fully signed ExecutionEnvelope.
+        """
+        with self._lock:
+            # Step 1 — Create unsigned envelope via THE ONLY constructor
+            # ExecutionEnvelope.create() handles:
+            #   - record_type validation
+            #   - nonce generation (32-char random hex)
+            #   - causal_hash computation from prev
+            #   - gef_version assignment
+            envelope = ExecutionEnvelope.create(
+                record_type=       record_type,
+                agent_id=          agent_id or self.agent_id,
+                signer_public_key= self.key_manager.public_key_hex,
+                sequence=          self._sequence,
+                payload=           payload,
+                prev=              self._last_envelope,
+            )
+
+            # Step 2 — Sign (mutates in place, returns self)
+            envelope.sign(self.key_manager)
+
+            # Step 3 — Assert chain invariants before any disk write
+            self._assert_chain_invariants(envelope)
+
+            # Step 4 — Write to ledger — must succeed before state advances
+            self._append_to_ledger(envelope)
+
+            # Step 5 — Advance state only after confirmed write
+            self._sequence      += 1
+            self._last_envelope  = envelope
+
+            return envelope
+
+    def verify_chain(self) -> bool:
+        """
+        Verify full ledger chain integrity from genesis.
+
+        For each envelope verifies:
+            - Signature valid against embedded signer_public_key
+            - causal_hash matches expected value from prev
+            - sequence is strictly sequential from 0
+
+        Returns True if entire chain is intact. False if any violation found.
+        All verification delegates to ExecutionEnvelope methods — no local logic.
+        """
+        if not self._ledger_file.exists():
+            return True
+
         try:
-            with open(self.pending_file, 'a') as f:
-                f.write(json.dumps(event.to_dict()) + '\n')
-        except Exception:
-            pass  # Best-effort, don't crash
-    
-    def append_signed(self, signed_obs: SignedObservation) -> None:
-        """Append signed observation to signed buffer."""
-        try:
-            with open(self.signed_file, 'a') as f:
-                f.write(json.dumps(signed_obs.to_dict()) + '\n')
-        except Exception:
-            pass  # Best-effort
-    
-    def load_pending(self) -> list:
-        """Load pending events (for crash recovery)."""
-        if not self.pending_file.exists():
-            return []
-        
-        events = []
-        try:
-            with open(self.pending_file) as f:
+            envelopes = []
+            with open(self._ledger_file, "r", encoding="utf-8") as f:
                 for line in f:
-                    if line.strip():
-                        event_dict = json.loads(line)
-                        events.append(ObservationEvent.from_dict(event_dict))
-        except Exception:
-            pass  # Best-effort
-        
-        return events
-    
-    def clear_pending(self) -> None:
-        """Clear pending buffer."""
-        try:
-            if self.pending_file.exists():
-                self.pending_file.unlink()
-        except Exception:
-            pass
+                    line = line.strip()
+                    if not line:
+                        continue
+                    env = ExecutionEnvelope.from_dict(json.loads(line))
+                    envelopes.append(env)
 
+            for i, env in enumerate(envelopes):
+                prev = envelopes[i - 1] if i > 0 else None
+
+                if not env.verify_sequence(i):
+                    return False
+                if not env.verify_chain(prev):
+                    return False
+                if not env.verify_signature():
+                    return False
+
+            return True
+
+        except Exception:
+            return False
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Return current ledger state snapshot."""
+        return {
+            "agent_id":          self.agent_id,
+            "next_sequence":     self._sequence,
+            "last_record_id":    (
+                self._last_envelope.record_id
+                if self._last_envelope else None
+            ),
+            "last_causal_hash":  (
+                self._last_envelope.causal_hash
+                if self._last_envelope else GENESIS_HASH
+            ),
+            "ledger_file":       str(self._ledger_file),
+            "gef_version":       GEF_VERSION,
+        }
+
+    # ── Internal ──────────────────────────────────────────────
+
+    def _restore_state(self) -> None:
+        """
+        Restore sequence and last_envelope from an existing ledger.
+        Called once at construction. Safe on empty or missing file.
+        If the last line is corrupted, state stays at genesis defaults
+        and a RuntimeWarning is issued.
+        """
+        if not self._ledger_file.exists():
+            return
+
+        last_line = None
+        try:
+            with open(self._ledger_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped:
+                        last_line = stripped
+        except Exception:
+            return
+
+        if not last_line:
+            return
+
+        try:
+            data = json.loads(last_line)
+            env  = ExecutionEnvelope.from_dict(data)
+
+            # Validate schema before trusting restored state
+            schema = env.validate_schema()
+            if not schema:
+                raise ValueError(
+                    f"Schema violation in last ledger line: {schema.errors}"
+                )
+
+            self._sequence      = env.sequence + 1
+            self._last_envelope = env
+
+        except Exception as exc:
+            warnings.warn(
+                f"GEFLedger: could not restore state from {self._ledger_file}: {exc}. "
+                "Last line may be corrupted. Call verify_chain() before emitting.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+
+    def _assert_chain_invariants(self, envelope: ExecutionEnvelope) -> None:
+        """
+        Raise RuntimeError if the envelope violates any chain invariant.
+
+        Checks:
+            1. sequence == self._sequence
+            2. causal_hash == expected value from self._last_envelope
+
+        Uses envelope's own verify_chain() and verify_sequence() —
+        no local hash or sequence logic here.
+        """
+        if not envelope.verify_sequence(self._sequence):
+            raise RuntimeError(
+                f"Chain invariant violated — sequence mismatch: "
+                f"expected={self._sequence}, got={envelope.sequence}"
+            )
+
+        if not envelope.verify_chain(self._last_envelope):
+            expected = envelope.expected_causal_hash_from(self._last_envelope)
+            raise RuntimeError(
+                f"Chain invariant violated — causal_hash mismatch: "
+                f"expected=...{expected[-12:]}, "
+                f"got=...{envelope.causal_hash[-12:]}"
+            )
+
+    def _append_to_ledger(self, envelope: ExecutionEnvelope) -> None:
+        """
+        Append one signed envelope as a newline-terminated JSON line.
+        Uses envelope.to_dict() — the only serialization path.
+        Raises RuntimeError on any I/O failure.
+        State MUST NOT advance if this raises.
+        """
+        try:
+            with open(self._ledger_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(envelope.to_dict()) + "\n")
+        except Exception as exc:
+            raise RuntimeError(
+                f"GEFLedger: ledger write failed — {exc}"
+            ) from exc
+
+
+# ── Global Instance Helpers ───────────────────────────────────
+
+_global_ledger: Optional[GEFLedger] = None
+
+
+def init_global_ledger(
+    key_manager:  Ed25519KeyManager,
+    agent_id:     str,
+    ledger_path:  str = ".guardclaw/ledger",
+) -> GEFLedger:
+    """
+    Initialize and return the process-wide GEFLedger instance.
+    Safe to call multiple times — replaces the previous in-memory instance.
+    Previous ledger files are preserved on disk.
+    """
+    global _global_ledger
+    _global_ledger = GEFLedger(
+        key_manager= key_manager,
+        agent_id=    agent_id,
+        ledger_path= ledger_path,
+    )
+    return _global_ledger
+
+
+def get_global_ledger() -> Optional[GEFLedger]:
+    """Return the global GEFLedger, or None if not yet initialized."""
+    return _global_ledger
+
+
+# ── Deprecated Shims ─────────────────────────────────────────
+# Removed in v0.3.0. Raises DeprecationWarning immediately.
 
 class EvidenceEmitter:
     """
-    Async evidence emitter.
-    
-    Design:
-    - Non-blocking queue (drops on overflow)
-    - Background signer thread
-    - Batch signing (amortized cost)
-    - Write-ahead buffer (crash recovery)
-    - Graceful shutdown
+    DEPRECATED — violates GEF Section 7.1.
+
+    EvidenceEmitter used deferred batch signing. Signatures did not exist
+    when emit() returned — a direct violation of the GEF signing contract.
+
+    Migration: use GEFLedger instead.
+    Will be removed in v0.3.0.
     """
-    
-    def __init__(
-        self,
-        key_manager: Ed25519KeyManager,
-        ledger_path: str = ".guardclaw/ledger",
-        buffer_dir: Optional[Path] = None,
-        signing_interval_seconds: float = 1.0,
-        batch_size: int = 100,
-        max_queue_size: int = 10000
-    ):
-        self.key_manager = key_manager
-        self.ledger_path = ledger_path
-        self.signing_interval = signing_interval_seconds
-        self.batch_size = batch_size
-        
-        # Queue
-        self.queue = Queue(maxsize=max_queue_size)
-        
-        # Buffer
-        if buffer_dir is None:
-            buffer_dir = Path(ledger_path).parent / "buffer"
-        self.buffer = WriteAheadBuffer(buffer_dir)
-        
-        # Stats
-        self.total_emitted = 0
-        self.total_signed = 0
-        self.total_dropped = 0
-        
-        # Threading
-        self.running = False
-        self.signer_thread: Optional[threading.Thread] = None
-        
-        # Ledger
-        self.ledger_dir = Path(ledger_path) / "observations"
-        self.ledger_dir.mkdir(parents=True, exist_ok=True)
-    
-    def start(self) -> None:
-        """Start background signer thread."""
-        if self.running:
-            return
-        
-        self.running = True
-        self.signer_thread = threading.Thread(target=self._signer_loop, daemon=True)
-        self.signer_thread.start()
-        print(f"🔄 Signer thread started (interval: {self.signing_interval}s)")
-    
-    def emit(self, event: ObservationEvent) -> None:
-        """
-        Emit event (non-blocking).
-        
-        If queue full, drops event and increments counter.
-        """
-        try:
-            # Write to buffer (best-effort)
-            self.buffer.append_pending(event)
-            
-            # Enqueue (non-blocking)
-            self.queue.put_nowait(event)
-            self.total_emitted += 1
-        
-        except Full:
-            # Queue full, drop event
-            self.total_dropped += 1
-    
-    def _signer_loop(self) -> None:
-        """Background signer loop."""
-        while self.running:
-            try:
-                # Collect batch
-                batch = []
-                deadline = time.time() + self.signing_interval
-                
-                while time.time() < deadline and len(batch) < self.batch_size:
-                    remaining = deadline - time.time()
-                    if remaining <= 0:
-                        break
-                    
-                    try:
-                        event = self.queue.get(timeout=min(remaining, 0.1))
-                        batch.append(event)
-                    except Empty:
-                        continue
-                
-                # Sign batch
-                if batch:
-                    self._sign_batch(batch)
-            
-            except Exception as e:
-                print(f"⚠️  Signer error: {e}")
-                time.sleep(0.1)
-    
-    def _sign_batch(self, batch: list) -> None:
-        """Sign batch of events."""
-        emission_time = datetime.now(timezone.utc)
-        
-        for event in batch:
-            try:
-                # Calculate accountability lag
-                event_time = datetime.fromisoformat(event.timestamp.replace('Z', '+00:00'))
-                lag_ms = (emission_time - event_time).total_seconds() * 1000
-                
-                # Sign event
-                canonical_bytes = canonical_json_encode(event.to_dict())
-                signature = self.key_manager.sign(canonical_bytes)
-                
-                # Create signed observation
-                signed_obs = SignedObservation(
-                    event=event,
-                    signature=signature,
-                    accountability_lag_ms=lag_ms
-                )
-                
-                # Write to buffer
-                self.buffer.append_signed(signed_obs)
-                
-                # Write to ledger
-                self._write_to_ledger(signed_obs)
-                
-                self.total_signed += 1
-            
-            except Exception as e:
-                print(f"⚠️  Signing failed: {e}")
-    
-    def _write_to_ledger(self, signed_obs: SignedObservation) -> None:
-        """Write signed observation to ledger."""
-        event_type = signed_obs.event.event_type.value
-        ledger_file = self.ledger_dir / f"{event_type}.jsonl"
-        
-        try:
-            with open(ledger_file, 'a') as f:
-                f.write(json.dumps(signed_obs.to_dict()) + '\n')
-        except Exception as e:
-            print(f"⚠️  Ledger write failed: {e}")
-    
-    def stop(self, timeout: float = 5.0) -> None:
-        """Stop emitter gracefully."""
-        print(f"🛑 Stopping emitter (queue size: {self.queue.qsize()})...")
-        
-        self.running = False
-        
-        # Wait for signer thread
-        if self.signer_thread:
-            self.signer_thread.join(timeout=timeout)
-        
-        # Drain remaining queue
-        remaining = []
-        while not self.queue.empty():
-            try:
-                event = self.queue.get_nowait()
-                remaining.append(event)
-            except Empty:
-                break
-        
-        # Sign remaining
-        if remaining:
-            self._sign_batch(remaining)
-        
-        print("🛑 Signer thread stopped")
-        print(f"✅ Emitter stopped (signed: {self.total_signed}, dropped: {self.total_dropped})")
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """Get emitter statistics."""
-        return {
-            "running": self.running,
-            "total_emitted": self.total_emitted,
-            "total_signed": self.total_signed,
-            "total_dropped": self.total_dropped,
-            "queue_size": self.queue.qsize()
-        }
+    def __init__(self, *args, **kwargs):
+        warnings.warn(
+            "EvidenceEmitter is deprecated and violates GEF Section 7.1 "
+            "(signature must exist before emit() returns). "
+            "Use guardclaw.core.emitter.GEFLedger instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
 
-# Global emitter instance
-_global_emitter: Optional[EvidenceEmitter] = None
-
-
-def init_global_emitter(
-    key_manager: Ed25519KeyManager,
-    ledger_path: str = ".guardclaw/ledger",
-    buffer_dir: Optional[Path] = None,
-    signing_interval_seconds: float = 1.0,
-    batch_size: int = 100,
-    max_queue_size: int = 10000
-) -> EvidenceEmitter:
-    """
-    Initialize global emitter instance.
-    
-    Returns:
-        EvidenceEmitter instance
-    """
-    global _global_emitter
-    
-    if _global_emitter is not None:
-        print("⚠️  Global emitter already exists, stopping old instance...")
-        _global_emitter.stop()
-    
-    _global_emitter = EvidenceEmitter(
-        key_manager=key_manager,
-        ledger_path=ledger_path,
-        buffer_dir=buffer_dir,
-        signing_interval_seconds=signing_interval_seconds,
-        batch_size=batch_size,
-        max_queue_size=max_queue_size
+def init_global_emitter(*args, **kwargs) -> None:
+    """DEPRECATED — use init_global_ledger() instead."""
+    warnings.warn(
+        "init_global_emitter() is deprecated. "
+        "Use guardclaw.core.emitter.init_global_ledger() instead.",
+        DeprecationWarning,
+        stacklevel=2,
     )
-    
-    _global_emitter.start()
-    
-    return _global_emitter
-
-
-def get_global_emitter() -> Optional[EvidenceEmitter]:
-    """Get global emitter instance."""
-    return _global_emitter

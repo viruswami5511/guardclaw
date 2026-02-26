@@ -1,31 +1,38 @@
 """
-GuardClaw Phase 2: Genesis (MINIMAL STUB)
+GuardClaw GEF: Genesis Records.
 
-This is a reference implementation for Phase 5 testing.
+GenesisRecord and AgentRegistration are signed using canonical_json_encode.
+They are emitted as the FIRST envelope in a GEFLedger via:
+    ledger.emit(EventType.GENESIS, record.to_dict())
+    ledger.emit(EventType.AGENT_REGISTRATION, reg.to_dict())
 """
 
 import uuid
-from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field, asdict
 
 from guardclaw.core.crypto import Ed25519KeyManager, canonical_json_encode
+from guardclaw.core.observers import utc_now
 
+
+# ─────────────────────────────────────────────────────────────
+# GenesisRecord
+# ─────────────────────────────────────────────────────────────
 
 @dataclass
 class GenesisRecord:
-    """Genesis record (ledger initialization)."""
-    
-    genesis_id: str
-    ledger_name: str
-    timestamp: str
-    created_by: str
+    """Root-of-trust record. Must be the first entry in any GEF ledger."""
+
+    genesis_id:      str
+    ledger_name:     str
+    timestamp:       str   # GEF format: YYYY-MM-DDTHH:MM:SS.mmmZ
+    created_by:      str
     root_public_key: str
-    purpose: str
-    jurisdiction: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    signature: Optional[str] = None
-    
+    purpose:         str
+    jurisdiction:    Optional[str] = None
+    metadata:        Dict[str, Any] = field(default_factory=dict)
+    signature:       Optional[str] = None
+
     @classmethod
     def create(
         cls,
@@ -34,57 +41,59 @@ class GenesisRecord:
         root_key_manager: Ed25519KeyManager,
         purpose: str,
         jurisdiction: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> "GenesisRecord":
-        """Create and sign genesis record."""
-        
-        genesis_id = f"genesis-{uuid.uuid4()}"
-        timestamp = datetime.now(timezone.utc).isoformat()
-        
         record = cls(
-            genesis_id=genesis_id,
-            ledger_name=ledger_name,
-            timestamp=timestamp,
-            created_by=created_by,
-            root_public_key=root_key_manager.public_key_hex(),
-            purpose=purpose,
-            jurisdiction=jurisdiction,
-            metadata=metadata or {}
+            genesis_id=      f"genesis-{uuid.uuid4()}",
+            ledger_name=     ledger_name,
+            timestamp=       utc_now(),
+            created_by=      created_by,
+            root_public_key= root_key_manager.public_key_hex(),
+            purpose=         purpose,
+            jurisdiction=    jurisdiction,
+            metadata=        metadata or {},
         )
-        
-        # Sign
-        record_dict = asdict(record)
-        record_dict.pop('signature')
-        canonical_bytes = canonical_json_encode(record_dict)
-        record.signature = root_key_manager.sign(canonical_bytes)
-        
+        # Sign over canonical bytes of the record (excluding signature)
+        d = asdict(record)
+        d.pop("signature")
+        record.signature = root_key_manager.sign(canonical_json_encode(d))
         return record
-    
+
+    def verify(self, root_key_manager: Ed25519KeyManager) -> bool:
+        """Verify the genesis record signature."""
+        if not self.signature:
+            return False
+        d = asdict(self)
+        d.pop("signature")
+        return root_key_manager.verify(canonical_json_encode(d), self.signature)
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "GenesisRecord":
-        """Load from dictionary."""
         return cls(**data)
 
 
+# ─────────────────────────────────────────────────────────────
+# AgentRegistration
+# ─────────────────────────────────────────────────────────────
+
 @dataclass
 class AgentRegistration:
-    """Agent registration record."""
-    
-    agent_id: str
-    agent_name: str
-    timestamp: str
-    registered_by: str
+    """Agent registration. Signed by the delegating (root) key."""
+
+    agent_id:         str
+    agent_name:       str
+    timestamp:        str   # GEF format
+    registered_by:    str
     agent_public_key: str
-    capabilities: List[str]
-    valid_from: str
-    valid_until: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    signature: Optional[str] = None
-    
+    capabilities:     List[str]
+    valid_from:       str
+    valid_until:      str
+    metadata:         Dict[str, Any] = field(default_factory=dict)
+    signature:        Optional[str] = None
+
     @classmethod
     def create(
         cls,
@@ -96,58 +105,58 @@ class AgentRegistration:
         capabilities: List[str],
         valid_from: str,
         valid_until: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> "AgentRegistration":
-        """Create and sign agent registration."""
-        
-        timestamp = datetime.now(timezone.utc).isoformat()
-        
         record = cls(
-            agent_id=agent_id,
-            agent_name=agent_name,
-            timestamp=timestamp,
-            registered_by=registered_by,
-            agent_public_key=agent_key_manager.public_key_hex(),
-            capabilities=capabilities,
-            valid_from=valid_from,
-            valid_until=valid_until,
-            metadata=metadata or {}
+            agent_id=         agent_id,
+            agent_name=       agent_name,
+            timestamp=        utc_now(),
+            registered_by=    registered_by,
+            agent_public_key= agent_key_manager.public_key_hex(),
+            capabilities=     capabilities,
+            valid_from=       valid_from,
+            valid_until=      valid_until,
+            metadata=         metadata or {},
         )
-        
-        # Sign with delegating key (root key)
-        record_dict = asdict(record)
-        record_dict.pop('signature')
-        canonical_bytes = canonical_json_encode(record_dict)
-        record.signature = delegating_key_manager.sign(canonical_bytes)
-        
+        d = asdict(record)
+        d.pop("signature")
+        record.signature = delegating_key_manager.sign(canonical_json_encode(d))
         return record
-    
+
+    def verify(self, delegating_key_manager: Ed25519KeyManager) -> bool:
+        if not self.signature:
+            return False
+        d = asdict(self)
+        d.pop("signature")
+        return delegating_key_manager.verify(canonical_json_encode(d), self.signature)
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentRegistration":
-        """Load from dictionary."""
         return cls(**data)
 
 
+# ─────────────────────────────────────────────────────────────
+# KeyDelegation (payload-only — no standalone signature)
+# ─────────────────────────────────────────────────────────────
+
 @dataclass
 class KeyDelegation:
-    """Key delegation record (stub)."""
-    
-    delegation_id: str
-    timestamp: str
+    """Key delegation record. Carried as payload in a GEF envelope."""
+
+    delegation_id:  str
+    timestamp:      str
     delegating_key: str
-    delegated_key: str
-    capabilities: List[str]
-    valid_from: str
-    valid_until: str
-    signature: Optional[str] = None
-    
+    delegated_key:  str
+    capabilities:   List[str]
+    valid_from:     str
+    valid_until:    str
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "KeyDelegation":
         return cls(**data)

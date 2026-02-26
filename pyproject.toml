@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "guardclaw"
-version = "0.1.4"
+version = "0.2.0"
 description = "Cryptographic evidence ledger for autonomous agent accountability"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -13,22 +13,18 @@ authors = [
     { name = "Viru Swami", email = "viruswami5511@gmail.com" }
 ]
 keywords = [
-    "ai",
-    "agents",
-    "cryptography",
-    "audit",
-    "ledger",
-    "accountability",
-    "replay-protection",
-    "verification"
+    "ai", "agents", "cryptography", "audit",
+    "ledger", "accountability", "replay-protection",
+    "verification", "gef", "evidence-format"
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Security :: Cryptography",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "License :: OSI Approved :: Apache Software License"
@@ -36,6 +32,7 @@ classifiers = [
 
 dependencies = [
     "cryptography>=41.0.0",
+    "jcs>=0.2.0",
 ]
 
 [project.optional-dependencies]
@@ -49,10 +46,10 @@ dev = [
 [project.urls]
 Repository = "https://github.com/viruswami5511/guardclaw"
 Homepage = "https://github.com/viruswami5511/guardclaw"
-Documentation = "https://github.com/viruswami5511/guardclaw/blob/master/docs/replay-bound-evidence-v1.0.md"
+Documentation = "https://github.com/viruswami5511/guardclaw/blob/master/docs/GEF-SPEC-v1.0.md"
 
 [project.scripts]
-guardclaw = "guardclaw.cli.main:main"
+guardclaw = "guardclaw.cli:cli"
 
 [tool.setuptools.packages.find]
 where = ["."]

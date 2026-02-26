@@ -1,566 +1,593 @@
 """
-GuardClaw Phase 5: Replay Engine
+guardclaw/core/replay.py
 
-Replay = Deterministic reconstruction of event sequence.
+GEF Replay Engine — v0.2.0
+Aligned to: GEF-SPEC-v1.0
 
-NOT:
-- Full re-execution
-- Time-travel debugging
-- Simulation
+Protocol Laws enforced here:
+    1. Load    → ExecutionEnvelope.from_dict(line)  — no other deserialization
+    2. Schema  → env.validate_schema()              — fail fast, no silent pass
+    3. Chain   → env.verify_chain(prev)             — sequential (causal dependency)
+    4. Sig     → env.verify_signature()             — parallel (independent per entry)
+    5. Version → all envelopes must share gef_version (GEFVersionError if not)
+    6. Nonce   → no two envelopes in a ledger may share a nonce (INV-29)
 
-IS:
-- Timeline reconstruction
-- Causal chain analysis
-- Decision tracing
-- Failure analysis
+Performance architecture — TWO PHASES:
+    Phase 1 (sequential): Chain + sequence + nonce uniqueness verification.
+        MUST be sequential — each entry's causal_hash depends on the previous.
+        Speed: ~50k/sec (hash comparison, no crypto)
 
-Design:
-- Read-only (no state modification)
-- Deterministic (same input = same output)
-- Human-readable (timeline format)
-- Machine-readable (JSON export)
+    Phase 2 (parallel): Signature verification.
+        EMBARRASSINGLY PARALLEL — each signature is independent.
+        Uses ProcessPoolExecutor. Falls back to sequential on any error.
+        Speed: N × 4,500/sec where N = CPU cores
 
-The Trojan Horse:
-Developers use GuardClaw for debugging, accidentally get accountability.
+    Target throughput with 4 cores:  ~12,000 envelopes/sec
+    Target throughput with 8 cores:  ~25,000 envelopes/sec
+    Python single-thread ceiling:     ~2,950 envelopes/sec (Ed25519 bound)
+    Go/Rust implementation target:  ~200,000 envelopes/sec
+
+silent mode:
+    ReplayEngine(silent=True)  — suppresses the "✅ Loaded N envelopes" print.
+    Used by the CLI (guardclaw verify) for clean formatted output.
+    Tests and scripts use silent=False (default) to see load confirmation.
+
+No custom dataclasses that mirror ExecutionEnvelope fields.
+No local chain hash computation.
+No local canonicalization.
+No alternate field mapping.
 """
 
 import json
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime
-from dataclasses import dataclass, field
+import os
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 
-from guardclaw.core.observers import ObservationEvent, EventType
-from guardclaw.core.emitter import SignedObservation
-from guardclaw.core.genesis import GenesisRecord, AgentRegistration
-from guardclaw.verification.verifier import ProofVerifier
+from guardclaw.core.models import (
+    ExecutionEnvelope,
+    GEFVersionError,
+    GEF_VERSION,
+    SchemaValidationResult,
+)
 
+
+# ─────────────────────────────────────────────────────────────
+# Module-level worker function
+# MUST be at top level for ProcessPoolExecutor pickling.
+# Inner functions and lambdas cannot be pickled on Windows.
+# ─────────────────────────────────────────────────────────────
+
+def _verify_sig_batch(
+    batch: List[Tuple[Dict[str, Any], Optional[str], str, int]]
+) -> List[Tuple[int, bool]]:
+    """
+    Verify a batch of envelope signatures in a subprocess.
+
+    Module-level placement is required for ProcessPoolExecutor pickling.
+    Do NOT move inside a class or function.
+
+    Args:
+        batch: List of (signing_dict, signature, pubkey_hex, sequence)
+               All primitive/dict types — pickable across process boundaries.
+
+    Returns:
+        List of (sequence, is_valid)
+    """
+    from guardclaw.core.canonical import canonical_json_encode
+    from guardclaw.core.crypto import Ed25519KeyManager
+
+    results: List[Tuple[int, bool]] = []
+
+    for signing_dict, signature, pubkey_hex, sequence in batch:
+        if not signature:
+            results.append((sequence, False))
+            continue
+        data = canonical_json_encode(signing_dict)
+        ok   = Ed25519KeyManager.verify_detached(data, signature, pubkey_hex)
+        results.append((sequence, ok))
+
+    return results
+
+
+# ─────────────────────────────────────────────────────────────
+# Tuning constants
+# ─────────────────────────────────────────────────────────────
+
+# Only use parallel verification above this count.
+# Below this, process spawn overhead exceeds the crypto speedup.
+_PARALLEL_THRESHOLD = 2_000
+
+# Batches per worker × CPU count = total batches.
+# Too small: IPC overhead dominates. Too large: poor load balancing.
+_BATCH_SIZE_PER_WORKER_MULTIPLIER = 4
+
+
+# ─────────────────────────────────────────────────────────────
+# Result / Summary Types
+# ─────────────────────────────────────────────────────────────
 
 @dataclass
-class TimelineEvent:
-    """
-    Timeline event for replay.
-    
-    Enriched observation event with verification status.
-    """
-    timestamp: str
-    event_type: str
-    event_id: str
-    subject_id: str
-    action: str
-    
-    # Verification
-    signature_valid: bool
-    correlation_id: Optional[str] = None
-    
-    # Metadata
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    # Lag analysis
-    accountability_lag_ms: Optional[float] = None
-    
-    def __lt__(self, other):
-        """Sort by timestamp."""
-        return self.timestamp < other.timestamp
-
-
-@dataclass
-class CausalChain:
-    """
-    Causal chain linking related events.
-    
-    Example:
-    User Intent → Authorization → Execution → Settlement
-    """
-    chain_id: str
-    events: List[TimelineEvent]
-    complete: bool  # All expected events present
-    
-    def get_start_event(self) -> Optional[TimelineEvent]:
-        """Get first event in chain."""
-        return self.events[0] if self.events else None
-    
-    def get_end_event(self) -> Optional[TimelineEvent]:
-        """Get last event in chain."""
-        return self.events[-1] if self.events else None
-    
-    def duration_ms(self) -> Optional[float]:
-        """Calculate chain duration."""
-        if len(self.events) < 2:
-            return None
-        
-        start = datetime.fromisoformat(self.events[0].timestamp.replace('Z', '+00:00'))
-        end = datetime.fromisoformat(self.events[-1].timestamp.replace('Z', '+00:00'))
-        
-        return (end - start).total_seconds() * 1000
+class ChainViolation:
+    """A single detected violation in the ledger."""
+    at_sequence:    int
+    record_id:      str
+    violation_type: str   # "schema" | "chain_break" | "invalid_signature" | "sequence_gap"
+    detail:         str
 
 
 @dataclass
 class ReplaySummary:
-    """
-    Summary of replay analysis.
-    """
-    total_events: int
-    event_type_counts: Dict[str, int]
-    
-    # Verification
-    valid_signatures: int
+    """Aggregate result of a full ledger verification pass."""
+    total_entries:      int
+    chain_valid:        bool
+    violations:         List[ChainViolation]
+    valid_signatures:   int
     invalid_signatures: int
-    
-    # Agents
-    agents_seen: List[str]
-    
-    # Causal chains
-    causal_chains: List[CausalChain]
-    
-    # Gaps
-    heartbeat_gaps: List[Tuple[str, str]]  # (start, end) timestamps
-    tombstones: List[TimelineEvent]
-    
-    # Lag analysis
-    avg_lag_ms: Optional[float]
-    max_lag_ms: Optional[float]
-    p95_lag_ms: Optional[float]
+    record_type_counts: Dict[str, int]
+    agents_seen:        List[str]
+    gef_version:        Optional[str]
+    first_timestamp:    Optional[str]
+    last_timestamp:     Optional[str]
 
+
+# ─────────────────────────────────────────────────────────────
+# Replay Engine
+# ─────────────────────────────────────────────────────────────
 
 class ReplayEngine:
     """
-    Replay engine for timeline reconstruction.
-    
-    Capabilities:
-    - Load evidence bundle
-    - Reconstruct timeline
-    - Analyze causal chains
-    - Detect gaps
-    - Calculate lag statistics
-    - Export to JSON
-    - Pretty-print timeline
-    
+    GEF-native replay engine with parallel signature verification.
+
     Usage:
         engine = ReplayEngine()
-        engine.load_bundle("evidence-bundle/")
-        timeline = engine.reconstruct_timeline()
+        engine.load(Path(".guardclaw/ledger.jsonl"))
+        summary = engine.verify()
         engine.print_timeline()
+        engine.export_json(Path("replay_out.json"))
+
+    Parallel mode (default):
+        Signature verification is parallelized using ProcessPoolExecutor.
+        Chain/sequence verification remains sequential (causal dependency).
+
+    Disable parallel:
+        engine = ReplayEngine(parallel=False)
+
+    Silent mode (for CLI use):
+        engine = ReplayEngine(silent=True)
+        Suppresses the "✅ Loaded N envelopes" confirmation print.
+        Use this in guardclaw verify to keep formatted output clean.
+        Tests and scripts should use silent=False (default).
+
+    Internal state:
+        self.envelopes  — List[ExecutionEnvelope], sorted by sequence
+        self.violations — populated by verify()
+
+    ALL verification logic delegates to ExecutionEnvelope methods.
+    This file contains ZERO chain hash computation.
+    This file contains ZERO canonicalization.
     """
-    
-    def __init__(self):
-        self.genesis: Optional[GenesisRecord] = None
-        self.agents: Dict[str, AgentRegistration] = {}
-        self.observations: List[SignedObservation] = []
-        self.timeline: List[TimelineEvent] = []
-        self.causal_chains: List[CausalChain] = []
-        self.verifier = ProofVerifier()
-    
-    def load_bundle(self, bundle_path: Path) -> None:
+
+    def __init__(self, parallel: bool = True, silent: bool = False):
+        self.envelopes:    List[ExecutionEnvelope] = []
+        self.violations:   List[ChainViolation]    = []
+        self._ledger_path: Optional[Path]          = None
+        self._parallel:    bool                    = parallel
+        self._silent:      bool                    = silent
+
+    # ── Load ──────────────────────────────────────────────────
+
+    def load(self, ledger_path: Path) -> None:
         """
-        Load evidence bundle from directory.
-        
-        Expected structure:
-        bundle/
-        ├── genesis.json
-        ├── agents/
-        │   ├── agent-001.json
-        │   └── agent-002.json
-        └── observations/
-            ├── intent.jsonl
-            ├── execution.jsonl
-            ├── result.jsonl
-            ├── failure.jsonl
-            ├── delegation.jsonl
-            ├── heartbeat.jsonl
-            └── tombstone.jsonl
-        
-        Args:
-            bundle_path: Path to evidence bundle
+        Load a GEF ledger JSONL file.
+
+        Each line is processed as:
+            1. json.loads(line)
+            2. ExecutionEnvelope.from_dict(data)   — THE ONLY deserialization path
+            3. env.validate_schema()               — fail fast on schema violation
+
+        After loading all lines:
+            4. Sort by sequence
+            5. Enforce gef_version homogeneity     — GEFVersionError if mixed
+
+        Raises:
+            FileNotFoundError — ledger file does not exist
+            ValueError        — malformed JSON or schema violation
+            GEFVersionError   — mixed gef_version values in one ledger
         """
-        bundle_path = Path(bundle_path)
-        
-        # Load genesis
-        genesis_file = bundle_path / "genesis.json"
-        if genesis_file.exists():
-            with open(genesis_file) as f:
-                self.genesis = GenesisRecord.from_dict(json.load(f))
-        
-        # Load agents
-        agents_dir = bundle_path / "agents"
-        if agents_dir.exists():
-            for agent_file in agents_dir.glob("*.json"):
-                with open(agent_file) as f:
-                    agent = AgentRegistration.from_dict(json.load(f))
-                    self.agents[agent.agent_id] = agent
-        
-        # Load observations
-        obs_dir = bundle_path / "observations"
-        if obs_dir.exists():
-            for event_type in EventType:
-                obs_file = obs_dir / f"{event_type.value}.jsonl"
-                if obs_file.exists():
-                    self._load_observations_file(obs_file)
-        
-        print(f"✅ Loaded bundle: {len(self.observations)} observations")
-    
-    def _load_observations_file(self, file_path: Path) -> None:
-        """Load observations from JSONL file."""
-        with open(file_path) as f:
-            for line in f:
-                if line.strip():
-                    try:
-                        obs_dict = json.loads(line)
-                        obs = SignedObservation.from_dict(obs_dict)
-                        self.observations.append(obs)
-                    except Exception as e:
-                        print(f"⚠️  Failed to load observation: {e}")
-    
-    def reconstruct_timeline(self) -> List[TimelineEvent]:
-        """
-        Reconstruct timeline from observations.
-        
-        Returns:
-            Sorted list of timeline events
-        """
-        self.timeline = []
-        
-        for obs in self.observations:
-            # Verify signature
-            signature_valid = self._verify_signature(obs)
-            
-            # Create timeline event
-            event = TimelineEvent(
-                timestamp=obs.event.timestamp,
-                event_type=obs.event.event_type.value,
-                event_id=obs.event.event_id,
-                subject_id=obs.event.subject_id,
-                action=obs.event.action,
-                signature_valid=signature_valid,
-                correlation_id=obs.event.correlation_id,
-                metadata=obs.event.metadata,
-                accountability_lag_ms=obs.accountability_lag_ms
+        ledger_path       = Path(ledger_path)
+        self._ledger_path = ledger_path
+        self.envelopes    = []
+        self.violations   = []
+
+        if not ledger_path.exists():
+            raise FileNotFoundError(f"GEF ledger not found: {ledger_path}")
+
+        with open(ledger_path, "r", encoding="utf-8") as f:
+            for line_num, raw in enumerate(f, 1):
+                raw = raw.strip()
+                if not raw:
+                    continue
+
+                # Step 1 — JSON parse
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"Malformed JSON at ledger line {line_num}: {e}"
+                    ) from e
+
+                # Step 2 — Deserialize via THE ONLY path
+                try:
+                    env = ExecutionEnvelope.from_dict(data)
+                except KeyError as e:
+                    raise ValueError(
+                        f"Missing required GEF field at line {line_num}: {e}"
+                    ) from e
+
+                # Step 3 — Schema validation: fail fast
+                schema = env.validate_schema()
+                if not schema:
+                    raise ValueError(
+                        f"GEF schema violation at line {line_num} "
+                        f"(record_id={data.get('record_id', '?')}): "
+                        f"{schema.errors}"
+                    )
+
+                self.envelopes.append(env)
+
+        # Step 4 — Sort by sequence (ledger should already be ordered; be safe)
+        self.envelopes.sort(key=lambda e: e.sequence)
+
+        # Step 5 — Enforce version homogeneity (CONTRACT 6)
+        if self.envelopes:
+            versions = {e.gef_version for e in self.envelopes}
+            if len(versions) > 1:
+                raise GEFVersionError(
+                    f"Ledger '{ledger_path.name}' contains mixed gef_version "
+                    f"values: {sorted(versions)}. All envelopes in a single "
+                    f"ledger must share identical gef_version."
+                )
+
+        # Confirmation print — suppressed in CLI (silent=True), shown in tests
+        if not self._silent:
+            print(
+                f"✅  Loaded {len(self.envelopes)} GEF envelopes "
+                f"from '{ledger_path.name}'"
             )
-            
-            self.timeline.append(event)
-        
-        # Sort by timestamp
-        self.timeline.sort()
-        
-        return self.timeline
-    
-    def _verify_signature(self, obs: SignedObservation) -> bool:
+
+    # ── Verify — Two-Phase ────────────────────────────────────
+
+    def verify(self) -> ReplaySummary:
         """
-        Verify observation signature.
-        
-        Args:
-            obs: Signed observation
-        
-        Returns:
-            True if signature valid, False otherwise
+        Full verification pass over all loaded envelopes.
+
+        TWO PHASES:
+
+        Phase 1 — Sequential (chain + sequence + nonce uniqueness):
+            Must be sequential — causal_hash depends on the previous entry.
+            Per entry:
+                1. verify_sequence(i)     — monotonic gap check
+                2. env.verify_chain(prev) — causal_hash integrity
+                3. nonce uniqueness       — INV-29: no two entries share a nonce
+
+        Phase 2 — Parallel (signature verification):
+            Signatures are independent — embarrassingly parallel.
+            Uses ProcessPoolExecutor with batching.
+            Falls back to sequential on any error.
+
+        Returns ReplaySummary with full violation list.
         """
-        try:
-            # Get agent key
-            agent_id = obs.event.subject_id
-            if agent_id not in self.agents:
-                return False
-            
-            agent = self.agents[agent_id]
-            
-            # Verify signature
-            from guardclaw.core.crypto import Ed25519KeyManager, canonical_json_encode
-            
-            public_key = Ed25519KeyManager.from_public_key_hex(agent.agent_public_key)
-            event_dict = obs.event.to_dict()
-            canonical_bytes = canonical_json_encode(event_dict)
-            
-            return public_key.verify(obs.signature, canonical_bytes)
-        
-        except Exception as e:
-            print(f"⚠️  Signature verification failed: {e}")
-            return False
-    
-    def build_causal_chains(self) -> List[CausalChain]:
-        """
-        Build causal chains from timeline.
-        
-        Chains are built by following correlation_id links.
-        
-        Returns:
-            List of causal chains
-        """
-        self.causal_chains = []
-        
-        # Group by correlation_id
-        chains: Dict[str, List[TimelineEvent]] = defaultdict(list)
-        
-        for event in self.timeline:
-            if event.correlation_id:
-                chains[event.correlation_id].append(event)
-        
-        # Create CausalChain objects
-        for chain_id, events in chains.items():
-            events.sort()  # Sort by timestamp
-            
-            chain = CausalChain(
-                chain_id=chain_id,
-                events=events,
-                complete=self._is_chain_complete(events)
-            )
-            
-            self.causal_chains.append(chain)
-        
-        return self.causal_chains
-    
-    def _is_chain_complete(self, events: List[TimelineEvent]) -> bool:
-        """
-        Check if causal chain is complete.
-        
-        Complete chain has:
-        - Intent or Authorization
-        - Execution
-        - Result or Failure
-        """
-        event_types = {e.event_type for e in events}
-        
-        has_start = "intent" in event_types or "authorization" in event_types
-        has_execution = "execution" in event_types
-        has_end = "result" in event_types or "failure" in event_types
-        
-        return has_start and has_execution and has_end
-    
-    def detect_gaps(self) -> List[Tuple[str, str]]:
-        """
-        Detect gaps in heartbeat sequence.
-        
-        A gap is when no heartbeat received for > 2x interval.
-        
-        Returns:
-            List of (start, end) timestamp tuples for gaps
-        """
-        gaps = []
-        
-        # Get all heartbeats
-        heartbeats = [e for e in self.timeline if e.event_type == "heartbeat"]
-        
-        if len(heartbeats) < 2:
-            return gaps
-        
-        # Expected interval (from first heartbeat metadata)
-        # Assume 60 seconds if not specified
-        expected_interval = 60
-        
-        for i in range(len(heartbeats) - 1):
-            current = heartbeats[i]
-            next_hb = heartbeats[i + 1]
-            
-            current_dt = datetime.fromisoformat(current.timestamp.replace('Z', '+00:00'))
-            next_dt = datetime.fromisoformat(next_hb.timestamp.replace('Z', '+00:00'))
-            
-            gap_seconds = (next_dt - current_dt).total_seconds()
-            
-            # Gap if > 2x expected interval
-            if gap_seconds > (expected_interval * 2):
-                gaps.append((current.timestamp, next_hb.timestamp))
-        
-        return gaps
-    
-    def calculate_lag_statistics(self) -> Dict[str, float]:
-        """
-        Calculate accountability lag statistics.
-        
-        Returns:
-            Dict with avg, max, p95 lag in milliseconds
-        """
-        lags = [
-            e.accountability_lag_ms
-            for e in self.timeline
-            if e.accountability_lag_ms is not None
-        ]
-        
-        if not lags:
-            return {"avg": 0, "max": 0, "p95": 0}
-        
-        lags.sort()
-        
-        return {
-            "avg": sum(lags) / len(lags),
-            "max": max(lags),
-            "p95": lags[int(len(lags) * 0.95)] if len(lags) > 0 else 0
-        }
-    
-    def generate_summary(self) -> ReplaySummary:
-        """
-        Generate replay summary.
-        
-        Returns:
-            ReplaySummary object
-        """
-        # Event type counts
-        event_type_counts = defaultdict(int)
-        for event in self.timeline:
-            event_type_counts[event.event_type] += 1
-        
-        # Verification stats
-        valid = sum(1 for e in self.timeline if e.signature_valid)
-        invalid = len(self.timeline) - valid
-        
-        # Agents
-        agents_seen = list({e.subject_id for e in self.timeline})
-        
-        # Causal chains
-        self.build_causal_chains()
-        
-        # Gaps
-        gaps = self.detect_gaps()
-        tombstones = [e for e in self.timeline if e.event_type == "tombstone"]
-        
-        # Lag stats
-        lag_stats = self.calculate_lag_statistics()
-        
-        return ReplaySummary(
-            total_events=len(self.timeline),
-            event_type_counts=dict(event_type_counts),
-            valid_signatures=valid,
-            invalid_signatures=invalid,
-            agents_seen=agents_seen,
-            causal_chains=self.causal_chains,
-            heartbeat_gaps=gaps,
-            tombstones=tombstones,
-            avg_lag_ms=lag_stats.get("avg"),
-            max_lag_ms=lag_stats.get("max"),
-            p95_lag_ms=lag_stats.get("p95")
+        self.violations = []
+
+        if not self.envelopes:
+            return self._empty_summary()
+
+        # ── Phase 1: Sequential chain + sequence + nonce ──────
+        chain_violations: List[ChainViolation] = []
+        seen_nonces:      Set[str]             = set()   # INV-29 enforcement
+
+        for i, env in enumerate(self.envelopes):
+            prev = self.envelopes[i - 1] if i > 0 else None
+
+            # ── 1a. Sequence gap check ─────────────────────────
+            if not env.verify_sequence(i):
+                chain_violations.append(ChainViolation(
+                    at_sequence=    i,
+                    record_id=      env.record_id,
+                    violation_type= "sequence_gap",
+                    detail=(
+                        f"Expected sequence {i}, got {env.sequence}"
+                    ),
+                ))
+
+            # ── 1b. Causal hash integrity ──────────────────────
+            if not env.verify_chain(prev):
+                expected = env.expected_causal_hash_from(prev)
+                chain_violations.append(ChainViolation(
+                    at_sequence=    env.sequence,
+                    record_id=      env.record_id,
+                    violation_type= "chain_break",
+                    detail=(
+                        f"causal_hash mismatch: "
+                        f"expected ...{expected[-12:]}, "
+                        f"got ...{env.causal_hash[-12:]}"
+                    ),
+                ))
+
+            # ── 1c. Nonce uniqueness (INV-29) ──────────────────
+            if env.nonce in seen_nonces:
+                chain_violations.append(ChainViolation(
+                    at_sequence=    env.sequence,
+                    record_id=      env.record_id,
+                    violation_type= "schema",
+                    detail=(
+                        f"Duplicate nonce '{env.nonce}' at sequence "
+                        f"{env.sequence} — nonces MUST be unique per "
+                        f"ledger (GEF-SPEC-1.0 INV-29)"
+                    ),
+                ))
+            seen_nonces.add(env.nonce)
+            # ── end INV-29 ─────────────────────────────────────
+
+        # ── Phase 2: Parallel signature verification ──────────
+        use_parallel = (
+            self._parallel
+            and len(self.envelopes) >= _PARALLEL_THRESHOLD
         )
-    
-    def print_timeline(self, max_events: Optional[int] = None) -> None:
+
+        if use_parallel:
+            sig_results = self._verify_signatures_parallel()
+        else:
+            sig_results = self._verify_signatures_sequential()
+
+        # ── Combine violations ────────────────────────────────
+        sig_violations: List[ChainViolation] = []
+        valid_sigs   = 0
+        invalid_sigs = 0
+
+        for env in self.envelopes:
+            ok = sig_results.get(env.sequence, False)
+            if ok:
+                valid_sigs += 1
+            else:
+                invalid_sigs += 1
+                sig_violations.append(ChainViolation(
+                    at_sequence=    env.sequence,
+                    record_id=      env.record_id,
+                    violation_type= "invalid_signature",
+                    detail=(
+                        f"Signature invalid "
+                        f"(signer: {env.signer_public_key[:16]}...)"
+                    ),
+                ))
+
+        self.violations = chain_violations + sig_violations
+
+        counts: Dict[str, int] = defaultdict(int)
+        for env in self.envelopes:
+            counts[env.record_type] += 1
+
+        return ReplaySummary(
+            total_entries=      len(self.envelopes),
+            chain_valid=        len(self.violations) == 0,
+            violations=         list(self.violations),
+            valid_signatures=   valid_sigs,
+            invalid_signatures= invalid_sigs,
+            record_type_counts= dict(counts),
+            agents_seen=        sorted({e.agent_id for e in self.envelopes}),
+            gef_version=        self.envelopes[0].gef_version,
+            first_timestamp=    self.envelopes[0].timestamp,
+            last_timestamp=     self.envelopes[-1].timestamp,
+        )
+
+    # ── Parallel Signature Verification ──────────────────────
+
+    def _verify_signatures_parallel(self) -> Dict[int, bool]:
         """
-        Pretty-print timeline.
-        
-        Args:
-            max_events: Max events to display (None = all)
+        Verify all signatures in parallel using ProcessPoolExecutor.
+
+        Strategy:
+            Split envelopes into batches.
+            Each subprocess receives a batch of (signing_dict, sig, pubkey, seq).
+            Only pickable primitives — no ExecutionEnvelope objects cross the
+            process boundary.
+
+        Falls back to _verify_signatures_sequential() on ANY error:
+            Windows spawn issues, pickle failures, OS resource limits.
+
+        Returns:
+            dict mapping sequence → is_valid
         """
-        if not self.timeline:
-            print("⚠️  No timeline to display")
-            return
-        
-        print("\n" + "="*80)
-        print("📋 GuardClaw Replay")
-        print("="*80)
-        
-        if self.genesis:
-            print(f"Ledger: {self.genesis.ledger_name}")
-            print(f"Created: {self.genesis.timestamp}")
-        
-        print(f"Events: {len(self.timeline)}")
-        print(f"Agents: {len(self.agents)}")
-        print("")
-        
-        # Timeline
-        events_to_show = self.timeline[:max_events] if max_events else self.timeline
-        
-        for event in events_to_show:
-            icon = self._get_event_icon(event.event_type)
-            status = "✅" if event.signature_valid else "❌"
-            
-            # Timestamp (show time only)
-            dt = datetime.fromisoformat(event.timestamp.replace('Z', '+00:00'))
-            time_str = dt.strftime("%H:%M:%S.%f")[:-3]
-            
-            print(f"{time_str} │ {icon} {event.event_type.upper()}")
-            print(f"         │ Subject: {event.subject_id}")
-            print(f"         │ Action: {event.action}")
-            
-            if event.correlation_id:
-                print(f"         │ Correlation: {event.correlation_id[:16]}...")
-            
-            if event.accountability_lag_ms:
-                print(f"         │ Lag: {event.accountability_lag_ms:.1f}ms")
-            
-            print(f"         │ Signature: {status}")
-            print("")
-        
-        if max_events and len(self.timeline) > max_events:
-            print(f"... and {len(self.timeline) - max_events} more events")
-            print("")
-        
-        # Summary
-        summary = self.generate_summary()
-        
-        print("="*80)
-        print("📊 Summary")
-        print("="*80)
-        print(f"Total events: {summary.total_events}")
-        print(f"Valid signatures: {summary.valid_signatures}")
-        print(f"Invalid signatures: {summary.invalid_signatures}")
-        print(f"Causal chains: {len(summary.causal_chains)}")
-        print(f"Heartbeat gaps: {len(summary.heartbeat_gaps)}")
-        print(f"Tombstones: {len(summary.tombstones)}")
-        
-        if summary.avg_lag_ms:
-            print(f"\nAccountability Lag:")
-            print(f"  Average: {summary.avg_lag_ms:.1f}ms")
-            print(f"  P95: {summary.p95_lag_ms:.1f}ms")
-            print(f"  Max: {summary.max_lag_ms:.1f}ms")
-        
-        print("="*80 + "\n")
-    
-    def _get_event_icon(self, event_type: str) -> str:
-        """Get icon for event type."""
-        icons = {
-            "intent": "💭",
-            "execution": "⚡",
-            "result": "✅",
-            "failure": "❌",
-            "delegation": "🔄",
-            "heartbeat": "💓",
-            "tombstone": "🪦"
+        n_workers  = min(os.cpu_count() or 4, 8)
+        batch_size = max(
+            500,
+            len(self.envelopes) // (n_workers * _BATCH_SIZE_PER_WORKER_MULTIPLIER),
+        )
+
+        all_data: List[Tuple[Dict, Optional[str], str, int]] = [
+            (
+                env.to_signing_dict(),
+                env.signature,
+                env.signer_public_key,
+                env.sequence,
+            )
+            for env in self.envelopes
+        ]
+
+        batches = [
+            all_data[i : i + batch_size]
+            for i in range(0, len(all_data), batch_size)
+        ]
+
+        results: Dict[int, bool] = {}
+
+        try:
+            with ProcessPoolExecutor(max_workers=n_workers) as executor:
+                for batch_result in executor.map(_verify_sig_batch, batches):
+                    for seq, ok in batch_result:
+                        results[seq] = ok
+
+        except Exception:
+            # Parallel failed — fall back to sequential silently.
+            results = self._verify_signatures_sequential()
+
+        return results
+
+    def _verify_signatures_sequential(self) -> Dict[int, bool]:
+        """
+        Sequential signature verification — fallback and small-ledger path.
+        """
+        return {
+            env.sequence: env.verify_signature()
+            for env in self.envelopes
         }
-        return icons.get(event_type, "📝")
-    
+
+    # ── Print Timeline ────────────────────────────────────────
+
+    def print_timeline(self, max_entries: Optional[int] = None) -> None:
+        """
+        Pretty-print a human-readable timeline to stdout.
+
+        Calls verify() internally. Does not modify engine state.
+
+        Args:
+            max_entries: If set, only the first N entries are shown.
+                         Summary stats always reflect the full ledger.
+        """
+        if not self.envelopes:
+            print("⚠️   No GEF envelopes loaded.")
+            return
+
+        summary = self.verify()
+        bar     = "=" * 80
+
+        print(f"\n{bar}")
+        print("📋  GuardClaw GEF Replay Timeline")
+        print(bar)
+        print(f"  Ledger      : {self._ledger_path or 'in-memory'}")
+        print(f"  GEF Version : {summary.gef_version}")
+        print(f"  Entries     : {summary.total_entries:,}")
+        print(f"  Chain       : {'✅ VALID' if summary.chain_valid else '❌ VIOLATED'}")
+        print(f"  Valid sigs  : {summary.valid_signatures:,}")
+        print(f"  Invalid sigs: {summary.invalid_signatures:,}")
+        print(f"  Agents      : {', '.join(summary.agents_seen)}")
+        print(f"  First entry : {summary.first_timestamp}")
+        print(f"  Last entry  : {summary.last_timestamp}")
+        print()
+
+        to_show = (
+            self.envelopes[:max_entries] if max_entries else self.envelopes
+        )
+
+        for env in to_show:
+            prev       = self.envelopes[env.sequence - 1] if env.sequence > 0 else None
+            sig_icon   = "✅" if env.verify_signature()  else "❌"
+            chain_icon = "🔗" if env.verify_chain(prev) else "⛓️‍💥"
+
+            print(f"  [{env.sequence:04d}] {env.timestamp}  {env.record_type}")
+            print(f"         record_id   : {env.record_id}")
+            print(f"         agent_id    : {env.agent_id}")
+            print(f"         nonce       : {env.nonce[:16]}...")
+            print(f"         causal_hash : ...{env.causal_hash[-12:]}")
+            print(f"         sig {sig_icon}  chain {chain_icon}")
+            print()
+
+        if max_entries and len(self.envelopes) > max_entries:
+            print(f"  ... and {len(self.envelopes) - max_entries:,} more entries not shown")
+            print()
+
+        if summary.violations:
+            print(f"{'─' * 80}")
+            print(f"❌  {len(summary.violations)} VIOLATION(S) DETECTED:")
+            print(f"{'─' * 80}")
+            for v in summary.violations:
+                print(
+                    f"  [seq {v.at_sequence:04d}] "
+                    f"{v.violation_type.upper():20s} | "
+                    f"{v.detail}"
+                )
+            print(f"{'─' * 80}")
+        else:
+            print(f"{'─' * 80}")
+            print("✅  All entries verified — chain intact, all signatures valid.")
+            print(f"{'─' * 80}")
+
+        print()
+
+    # ── Export JSON ───────────────────────────────────────────
+
     def export_json(self, output_path: Path) -> None:
         """
-        Export replay to JSON.
-        
+        Export full replay summary as a JSON audit report.
+
+        Use for:
+            CI artifact storage, regulatory audit submission,
+            cross-tool verification, external forensic review.
+
+        Calls verify() internally. Does not modify engine state.
+
         Args:
-            output_path: Output file path
+            output_path: Destination path. Parent directories created if missing.
+
+        Raises:
+            RuntimeError — no envelopes loaded
         """
-        summary = self.generate_summary()
-        
-        output = {
-            "genesis": self.genesis.to_dict() if self.genesis else None,
-            "agents": {aid: agent.to_dict() for aid, agent in self.agents.items()},
-            "timeline": [
-                {
-                    "timestamp": e.timestamp,
-                    "event_type": e.event_type,
-                    "event_id": e.event_id,
-                    "subject_id": e.subject_id,
-                    "action": e.action,
-                    "signature_valid": e.signature_valid,
-                    "correlation_id": e.correlation_id,
-                    "accountability_lag_ms": e.accountability_lag_ms
-                }
-                for e in self.timeline
-            ],
-            "causal_chains": [
-                {
-                    "chain_id": chain.chain_id,
-                    "events": [e.event_id for e in chain.events],
-                    "complete": chain.complete,
-                    "duration_ms": chain.duration_ms()
-                }
-                for chain in summary.causal_chains
-            ],
-            "summary": {
-                "total_events": summary.total_events,
-                "event_type_counts": summary.event_type_counts,
-                "valid_signatures": summary.valid_signatures,
+        if not self.envelopes:
+            raise RuntimeError(
+                "No envelopes loaded. Call load() before export_json()."
+            )
+
+        summary     = self.verify()
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        report = {
+            "gef_replay_report": {
+                "version":            "1.0",
+                "ledger":             str(self._ledger_path or "in-memory"),
+                "total_entries":      summary.total_entries,
+                "chain_valid":        summary.chain_valid,
+                "valid_signatures":   summary.valid_signatures,
                 "invalid_signatures": summary.invalid_signatures,
-                "agents_seen": summary.agents_seen,
-                "heartbeat_gaps": summary.heartbeat_gaps,
-                "avg_lag_ms": summary.avg_lag_ms,
-                "max_lag_ms": summary.max_lag_ms,
-                "p95_lag_ms": summary.p95_lag_ms
+                "gef_version":        summary.gef_version,
+                "first_timestamp":    summary.first_timestamp,
+                "last_timestamp":     summary.last_timestamp,
+                "agents_seen":        summary.agents_seen,
+                "record_type_counts": summary.record_type_counts,
+                "violations": [
+                    {
+                        "at_sequence":    v.at_sequence,
+                        "record_id":      v.record_id,
+                        "violation_type": v.violation_type,
+                        "detail":         v.detail,
+                    }
+                    for v in summary.violations
+                ],
             }
         }
-        
-        with open(output_path, 'w') as f:
-            json.dump(output, f, indent=2)
-        
-        print(f"✅ Exported replay to {output_path}")
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+
+        if not self._silent:
+            print(f"📄  Replay report exported to: {output_path}")
+
+    # ── Internal ──────────────────────────────────────────────
+
+    def _empty_summary(self) -> ReplaySummary:
+        """Return a clean empty summary for a zero-entry ledger."""
+        return ReplaySummary(
+            total_entries=      0,
+            chain_valid=        True,
+            violations=         [],
+            valid_signatures=   0,
+            invalid_signatures= 0,
+            record_type_counts= {},
+            agents_seen=        [],
+            gef_version=        None,
+            first_timestamp=    None,
+            last_timestamp=     None,
+        )

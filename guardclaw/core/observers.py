@@ -1,285 +1,141 @@
 """
-GuardClaw Phase 5: Observer System
+guardclaw/core/observers.py
 
-Complete observer implementation with strict replay protection.
-Phase 5.1: Nonce is REQUIRED (no backward compatibility)
+GEF-native observer helpers.
+
+REMOVED (permanently):
+    ObservationEvent   — replaced by ExecutionEnvelope
+    EventType enum     — replaced by RecordType constants in models.py
+    utc_now()          — replaced by gef_timestamp() in core/time.py
+
+Observer calls ledger.emit(record_type, payload) directly.
+The ledger constructs the ExecutionEnvelope and signs it.
 """
 
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional, Dict, Any, Callable
-from datetime import datetime, timezone
 import secrets
+from typing import Any, Callable, Dict, Optional
+
+from guardclaw.core.models import RecordType
+from guardclaw.core.time import gef_timestamp  # noqa: F401 — re-exported for convenience
 
 
-class EventType(Enum):
-    """Types of observable events."""
-    INTENT = "intent"
-    EXECUTION = "execution"
-    RESULT = "result"
-    FAILURE = "failure"
-    DELEGATION = "delegation"
-    HEARTBEAT = "heartbeat"
+def generate_record_id() -> str:
+    """Generate a unique GEF record ID."""
+    return f"gef-{secrets.token_hex(12)}"
 
 
-@dataclass
-class ObservationEvent:
-    """
-    Observable event from agent.
-    
-    Phase 5.1: Nonce is REQUIRED for all events (v0.1.0 protocol)
-    """
-    event_id: str
-    timestamp: str
-    event_type: EventType
-    subject_id: str  # Who did this
-    action: str
-    nonce: str = field(default_factory=lambda: secrets.token_hex(16))  # REQUIRED
-    correlation_id: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        Convert to dictionary for signing.
-        
-        Phase 5.1: Nonce is ALWAYS included (required field)
-        """
-        data = {
-            "event_id": self.event_id,
-            "timestamp": self.timestamp,
-            "event_type": self.event_type.value,
-            "subject_id": self.subject_id,
-            "action": self.action,
-            "nonce": self.nonce  # Always included
-        }
-        
-        # Optional fields
-        if self.correlation_id:
-            data["correlation_id"] = self.correlation_id
-        
-        if self.metadata:
-            data["metadata"] = self.metadata
-        
-        return data
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ObservationEvent":
-        """
-        Reconstruct from dictionary.
-        
-        Phase 5.1: STRICT validation - nonce is required
-        """
-        # Validate nonce is present
-        if "nonce" not in data:
-            raise ValueError(
-                "Invalid event: 'nonce' field is required in GuardClaw v0.1.0 protocol. "
-                "This event appears to be from a pre-release or incompatible version."
-            )
-        
-        # Validate nonce type
-        if not isinstance(data["nonce"], str):
-            raise ValueError(
-                f"Invalid event: 'nonce' must be a string, got {type(data['nonce']).__name__}"
-            )
-        
-        # Validate nonce length
-        if len(data["nonce"]) != 32:
-            raise ValueError(
-                f"Invalid event: 'nonce' must be 32 hex characters, got {len(data['nonce'])}"
-            )
-        
-        # Validate nonce is valid hex (GPT's improvement)
-        try:
-            bytes.fromhex(data["nonce"])
-        except ValueError:
-            raise ValueError(
-                f"Invalid event: 'nonce' must be valid hexadecimal string, "
-                f"got '{data['nonce'][:8]}...'"
-            )
-        
-        return cls(
-            event_id=data["event_id"],
-            timestamp=data["timestamp"],
-            event_type=EventType(data["event_type"]),
-            subject_id=data["subject_id"],
-            action=data["action"],
-            nonce=data["nonce"],  # Required
-            correlation_id=data.get("correlation_id"),
-            metadata=data.get("metadata")
-        )
-
+# ─────────────────────────────────────────────────────────────
+# Observer
+# ─────────────────────────────────────────────────────────────
 
 class Observer:
     """
-    Observer base class for monitoring agent actions.
-    
-    Observers hook into agent lifecycle and emit events to the evidence emitter.
-    """
-    
-    def __init__(self, observer_id: str):
-        self.observer_id = observer_id
-        self._emitter = None
-    
-    def set_emitter(self, emitter):
-        """Set the evidence emitter for this observer."""
-        self._emitter = emitter
-    
-    def observe(self, event: ObservationEvent) -> None:
-        """
-        Observe an event.
-        
-        Override this method to add custom observation logic.
-        """
-        if self._emitter:
-            self._emitter.emit(event)
-    
-    def on_intent(self, agent_id: str, intent: str, context: Optional[Dict] = None) -> None:
-        """Called when agent declares intent."""
-        event = ObservationEvent(
-            event_id=generate_event_id(),
-            timestamp=utc_now(),
-            event_type=EventType.INTENT,
-            subject_id=agent_id,
-            action=intent,
-            metadata=context or {}
-        )
-        self.observe(event)
-    
-    def on_execution(self, agent_id: str, action: str, context: Optional[Dict] = None) -> None:
-        """Called when agent executes action."""
-        event = ObservationEvent(
-            event_id=generate_event_id(),
-            timestamp=utc_now(),
-            event_type=EventType.EXECUTION,
-            subject_id=agent_id,
-            action=action,
-            metadata=context or {}
-        )
-        self.observe(event)
-    
-    def on_result(self, agent_id: str, action: str, result: Any, context: Optional[Dict] = None) -> None:
-        """Called when action completes successfully."""
-        event = ObservationEvent(
-            event_id=generate_event_id(),
-            timestamp=utc_now(),
-            event_type=EventType.RESULT,
-            subject_id=agent_id,
-            action=action,
-            metadata={
-                "result": str(result),
-                **(context or {})
-            }
-        )
-        self.observe(event)
-    
-    def on_failure(self, agent_id: str, action: str, error: str, context: Optional[Dict] = None) -> None:
-        """Called when action fails."""
-        event = ObservationEvent(
-            event_id=generate_event_id(),
-            timestamp=utc_now(),
-            event_type=EventType.FAILURE,
-            subject_id=agent_id,
-            action=action,
-            metadata={
-                "error": error,
-                **(context or {})
-            }
-        )
-        self.observe(event)
-    
-    def on_delegation(self, agent_id: str, delegated_to: str, action: str, context: Optional[Dict] = None) -> None:
-        """Called when agent delegates to another agent."""
-        event = ObservationEvent(
-            event_id=generate_event_id(),
-            timestamp=utc_now(),
-            event_type=EventType.DELEGATION,
-            subject_id=agent_id,
-            action=action,
-            metadata={
-                "delegated_to": delegated_to,
-                **(context or {})
-            }
-        )
-        self.observe(event)
-    
-    def on_heartbeat(self, agent_id: str, status: str = "alive") -> None:
-        """Called periodically to indicate agent is still active."""
-        event = ObservationEvent(
-            event_id=generate_event_id(),
-            timestamp=utc_now(),
-            event_type=EventType.HEARTBEAT,
-            subject_id=agent_id,
-            action="heartbeat",
-            metadata={"status": status}
-        )
-        self.observe(event)
+    GEF-native observer.
 
+    Each on_* method calls ledger.emit(record_type, payload).
+    The ledger creates the ExecutionEnvelope, sets causal_hash,
+    signs it, and appends it — all atomically.
+
+    No batching. No deferred signing. No ObservationEvent.
+    """
+
+    def __init__(self, agent_id: str, ledger=None):
+        self.agent_id = agent_id
+        self._ledger  = ledger
+
+    def set_ledger(self, ledger) -> None:
+        """Bind a GEFLedger. Must be called before any on_* method."""
+        self._ledger = ledger
+
+    def _emit(self, record_type: str, payload: Dict[str, Any]) -> None:
+        if self._ledger is None:
+            raise RuntimeError(
+                "Observer has no GEFLedger bound. Call set_ledger() first."
+            )
+        payload = dict(payload)
+        payload.setdefault("agent_id", self.agent_id)
+        self._ledger.emit(record_type, payload)
+
+    def on_intent(self, intent: str, context: Optional[Dict] = None) -> None:
+        self._emit(RecordType.INTENT, {
+            "intent":  intent,
+            "context": context or {},
+        })
+
+    def on_execution(self, action: str, context: Optional[Dict] = None) -> None:
+        self._emit(RecordType.EXECUTION, {
+            "action":  action,
+            "context": context or {},
+        })
+
+    def on_result(self, action: str, result: Any,
+                  context: Optional[Dict] = None) -> None:
+        self._emit(RecordType.RESULT, {
+            "action":  action,
+            "result":  str(result),
+            "context": context or {},
+        })
+
+    def on_failure(self, action: str, error: str,
+                   context: Optional[Dict] = None) -> None:
+        self._emit(RecordType.FAILURE, {
+            "action":  action,
+            "error":   error,
+            "context": context or {},
+        })
+
+    def on_delegation(self, delegated_to: str, action: str,
+                      context: Optional[Dict] = None) -> None:
+        self._emit(RecordType.DELEGATION, {
+            "delegated_to": delegated_to,
+            "action":       action,
+            "context":      context or {},
+        })
+
+    def on_heartbeat(self, status: str = "alive") -> None:
+        self._emit(RecordType.HEARTBEAT, {"status": status})
+
+    def on_tool_call(self, tool_name: str, inputs: Dict[str, Any],
+                     context: Optional[Dict] = None) -> None:
+        self._emit(RecordType.TOOL_CALL, {
+            "tool_name": tool_name,
+            "inputs":    inputs,
+            "context":   context or {},
+        })
+
+
+# ─────────────────────────────────────────────────────────────
+# FunctionObserver
+# ─────────────────────────────────────────────────────────────
 
 class FunctionObserver(Observer):
     """
-    Observer that wraps a function to monitor its execution.
-    
-    Automatically generates intent, execution, and result/failure events.
+    Wraps a Python callable with GEF observation.
+    Emits intent → execution → result/failure as atomic GEF envelopes.
     """
-    
-    def __init__(self, observer_id: str, subject_id: str):
-        super().__init__(observer_id)
-        self.subject_id = subject_id
-    
+
     def wrap(self, func: Callable) -> Callable:
-        """
-        Wrap a function to observe its execution.
-        
-        Returns a wrapper function that emits events before/after execution.
-        """
+        obs = self
+
         def wrapper(*args, **kwargs):
-            # Emit intent
-            self.on_intent(
-                agent_id=self.subject_id,
+            obs.on_intent(
                 intent=f"call_{func.__name__}",
                 context={
-                    "function": func.__name__,
-                    "args_count": len(args),
-                    "kwargs_count": len(kwargs)
-                }
+                    "function":     func.__name__,
+                    "args_count":   len(args),
+                    "kwargs_count": len(kwargs),
+                },
             )
-            
-            # Emit execution
-            self.on_execution(
-                agent_id=self.subject_id,
-                action=f"execute_{func.__name__}"
-            )
-            
+            obs.on_execution(action=f"execute_{func.__name__}")
             try:
-                # Execute function
                 result = func(*args, **kwargs)
-                
-                # Emit result
-                self.on_result(
-                    agent_id=self.subject_id,
-                    action=f"execute_{func.__name__}",
-                    result=result
-                )
-                
+                obs.on_result(action=f"execute_{func.__name__}", result=result)
                 return result
-            
             except Exception as e:
-                # Emit failure
-                self.on_failure(
-                    agent_id=self.subject_id,
+                obs.on_failure(
                     action=f"execute_{func.__name__}",
-                    error=str(e)
+                    error=str(e),
                 )
                 raise
-        
+
         return wrapper
-
-
-def utc_now() -> str:
-    """Return current UTC timestamp in ISO 8601 format."""
-    return datetime.now(timezone.utc).isoformat()
-
-
-def generate_event_id() -> str:
-    """Generate unique event ID."""
-    return f"event-{secrets.token_hex(12)}"
