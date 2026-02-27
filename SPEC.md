@@ -78,7 +78,7 @@ The specification is stable. Breaking changes require a new major version (`GEF-
 
 1\.  Introduction
 
-&nbsp;   1.1  Why a Protocol, Not a Library
+    1.1  Why a Protocol, Not a Library
 
 2\.  Design Goals
 
@@ -88,111 +88,111 @@ The specification is stable. Breaking changes require a new major version (`GEF-
 
 5\.  The Envelope
 
-&nbsp;   5.1  Field Definitions
+    5.1  Field Definitions
 
-&nbsp;   5.2  Field Encoding Rules
+    5.2  Field Encoding Rules
 
-&nbsp;   5.3  Record Types
+    5.3  Record Types
 
 6\.  The Three Protocol Contracts
 
-&nbsp;   6.1  Contract I  — Canonical Serialization (RFC 8785 JCS)
+    6.1  Contract I  — Canonical Serialization (RFC 8785 JCS)
 
-&nbsp;   6.2  Contract II — Causal Chain Integrity (SHA-256)
+    6.2  Contract II — Causal Chain Integrity (SHA-256)
 
-&nbsp;   6.3  Contract III — Signature Authenticity (Ed25519)
+    6.3  Contract III — Signature Authenticity (Ed25519)
 
 7\.  Signing and Verification Procedure
 
-&nbsp;   7.1  Constructing the Signing Surface
+    7.1  Constructing the Signing Surface
 
-&nbsp;   7.2  Signing an Envelope
+    7.2  Signing an Envelope
 
-&nbsp;   7.3  Verifying an Envelope Signature
+    7.3  Verifying an Envelope Signature
 
-&nbsp;   7.4  Verifying a Full Ledger
+    7.4  Verifying a Full Ledger
 
 8\.  Chain Construction
 
-&nbsp;   8.1  Genesis Entry
+    8.1  Genesis Entry
 
-&nbsp;   8.2  Subsequent Entries
+    8.2  Subsequent Entries
 
-&nbsp;   8.3  Chain Hash Algorithm
+    8.3  Chain Hash Algorithm
 
 9\.  The Ledger Format
 
-&nbsp;   9.1  Encoding
+    9.1  Encoding
 
-&nbsp;   9.2  Append Semantics
+    9.2  Append Semantics
 
-&nbsp;   9.3  Crash Consistency
+    9.3  Crash Consistency
 
 10\. Formal Invariants
 
-&nbsp;   10.1  Signing Invariants        (INV-01 – INV-08)
+    10.1  Signing Invariants        (INV-01 – INV-08)
 
-&nbsp;   10.2  Chain Invariants          (INV-09 – INV-14)
+    10.2  Chain Invariants          (INV-09 – INV-14)
 
-&nbsp;   10.3  Schema Invariants         (INV-15 – INV-22)
+    10.3  Schema Invariants         (INV-15 – INV-22)
 
-&nbsp;   10.4  Replay Invariants         (INV-23 – INV-28)
+    10.4  Replay Invariants         (INV-23 – INV-28)
 
-&nbsp;   10.5  Nonce Invariants          (INV-29 – INV-30)
+    10.5  Nonce Invariants          (INV-29 – INV-30)
 
-&nbsp;   10.6  Cross-Language Invariants (INV-31 – INV-33)
+    10.6  Cross-Language Invariants (INV-31 – INV-33)
 
 11\. Security Considerations
 
-&nbsp;   11.1  Threat Model
+    11.1  Threat Model
 
-&nbsp;   11.2  Cryptographic Choices and Rationale
+    11.2  Cryptographic Choices and Rationale
 
-&nbsp;   11.3  Attack Surface Analysis
+    11.3  Attack Surface Analysis
 
-&nbsp;   11.4  Known Limitations
+    11.4  Known Limitations
 
-&nbsp;   11.5  Ledger Anchoring
+    11.5  Ledger Anchoring
 
 12\. Cross-Language Compliance
 
-&nbsp;   12.1  Compliance Requirements
+    12.1  Compliance Requirements
 
-&nbsp;   12.2  Test Vectors
+    12.2  Test Vectors
 
-&nbsp;   12.3  Verified Implementations
+    12.3  Verified Implementations
 
 13\. Implementation Guidance
 
 14\. Versioning
 
-&nbsp;   14.1  Version Identifier
+    14.1  Version Identifier
 
-&nbsp;   14.2  Major Version — Breaking Changes
+    14.2  Major Version — Breaking Changes
 
-&nbsp;   14.3  Minor Version — Additive Changes
+    14.3  Minor Version — Additive Changes
 
-&nbsp;   14.4  Ledger Homogeneity
+    14.4  Ledger Homogeneity
 
-&nbsp;   14.5  Forward Compatibility for Record Types
+    14.5  Forward Compatibility for Record Types
 
 15\. Compliance Declaration
 
 16\. Non-Normative Design Rationale
 
-&nbsp;   16.1  Why a Chain Hash, Not a Merkle Tree
+    16.1  Why a Chain Hash, Not a Merkle Tree
 
-&nbsp;   16.2  Why the Chain Hash Excludes the Signature
+    16.2  Why the Chain Hash Excludes the Signature
 
-&nbsp;   16.3  Why Ed25519 and Not RSA or ECDSA (P-256)
+    16.3  Why Ed25519 and Not RSA or ECDSA (P-256)
 
-&nbsp;   16.4  Why RFC 8785 JCS and Not Protocol Buffers or MessagePack
+    16.4  Why RFC 8785 JCS and Not Protocol Buffers or MessagePack
 
-&nbsp;   16.5  Why JSONL and Not a Database Format
+    16.5  Why JSONL and Not a Database Format
 
-&nbsp;   16.6  Why Ten Signing Fields and Not More
+    16.6  Why Ten Signing Fields and Not More
 
-&nbsp;   16.7  Why Apache 2.0 and Not MIT or GPL
+    16.7  Why Apache 2.0 and Not MIT or GPL
 
 17\. References
 
@@ -442,13 +442,13 @@ A verifier (any party holding the agent's public key) can at any time:
 
 2\. For each entry:
 
-&nbsp;  a. Verify the schema is well-formed (all required fields present and valid).
+   a. Verify the schema is well-formed (all required fields present and valid).
 
-&nbsp;  b. Verify the sequence is monotonically increasing with no gaps.
+   b. Verify the sequence is monotonically increasing with no gaps.
 
-&nbsp;  c. Verify causal_hash == SHA-256(JCS(prev.signing_surface)).
+   c. Verify causal_hash == SHA-256(JCS(prev.signing_surface)).
 
-&nbsp;  d. Verify the Ed25519 signature over JCS(signing_surface).
+   d. Verify the Ed25519 signature over JCS(signing_surface).
 
 3\. Emit a summary: chain valid, all signatures valid, no violations.
 
@@ -734,11 +734,11 @@ Verification:
 
 Ed25519.Verify(
 
-&nbsp;   public_key = decode_hex(envelope.signer_public_key),
+    public_key = decode_hex(envelope.signer_public_key),
 
-&nbsp;   message    = JCS(signing_surface(envelope)),
+    message    = JCS(signing_surface(envelope)),
 
-&nbsp;   signature  = base64url_decode(envelope.signature)
+    signature  = base64url_decode(envelope.signature)
 
 ) == True
 
@@ -760,7 +760,7 @@ A verifier MUST use the `signer_public_key` embedded in the envelope itself for 
 
 ### 7.1  Constructing the Signing Surface
 
-&nbsp;
+ 
 
 The signing surface is a JSON object containing exactly the ten fields listed below, in any order (the JCS library will sort them canonically). The `signature` field MUST be excluded.
 
@@ -770,25 +770,25 @@ The signing surface is a JSON object containing exactly the ten fields listed be
 
 {
 
-&nbsp; "gef_version":      <string>,
+  "gef_version":      <string>,
 
-&nbsp; "record_id":        <string>,
+  "record_id":        <string>,
 
-&nbsp; "record_type":      <string>,
+  "record_type":      <string>,
 
-&nbsp; "agent_id":         <string>,
+  "agent_id":         <string>,
 
-&nbsp; "signer_public_key": <string>,
+  "signer_public_key": <string>,
 
-&nbsp; "sequence":         <integer>,
+  "sequence":         <integer>,
 
-&nbsp; "nonce":            <string>,
+  "nonce":            <string>,
 
-&nbsp; "timestamp":        <string>,
+  "timestamp":        <string>,
 
-&nbsp; "causal_hash":      <string>,
+  "causal_hash":      <string>,
 
-&nbsp; "payload":          <object>
+  "payload":          <object>
 
 }
 
@@ -810,15 +810,15 @@ PROCEDURE Sign(envelope, private_key):
 
 
 
-&nbsp; 1. Construct signing_surface from envelope (exclude 'signature').
+  1. Construct signing_surface from envelope (exclude 'signature').
 
-&nbsp; 2. canonical_bytes = JCS(signing_surface)               // Contract I
+  2. canonical_bytes = JCS(signing_surface)               // Contract I
 
-&nbsp; 3. sig_bytes       = Ed25519.Sign(private_key, canonical_bytes) // Contract III
+  3. sig_bytes       = Ed25519.Sign(private_key, canonical_bytes) // Contract III
 
-&nbsp; 4. envelope.signature = base64url_encode(sig_bytes, padding=False)
+  4. envelope.signature = base64url_encode(sig_bytes, padding=False)
 
-&nbsp; 5. RETURN envelope
+  5. RETURN envelope
 
 ```
 
@@ -834,15 +834,15 @@ PROCEDURE VerifySignature(envelope) -> bool:
 
 
 
-&nbsp; 1. Construct signing_surface from envelope (exclude 'signature').
+  1. Construct signing_surface from envelope (exclude 'signature').
 
-&nbsp; 2. canonical_bytes = JCS(signing_surface)               // Contract I
+  2. canonical_bytes = JCS(signing_surface)               // Contract I
 
-&nbsp; 3. public_key_bytes = decode_hex(envelope.signer_public_key)
+  3. public_key_bytes = decode_hex(envelope.signer_public_key)
 
-&nbsp; 4. sig_bytes        = base64url_decode(envelope.signature)
+  4. sig_bytes        = base64url_decode(envelope.signature)
 
-&nbsp; 5. RETURN Ed25519.Verify(public_key_bytes, canonical_bytes, sig_bytes)
+  5. RETURN Ed25519.Verify(public_key_bytes, canonical_bytes, sig_bytes)
 
 ```
 
@@ -862,99 +862,99 @@ PROCEDURE VerifyLedger(ledger_path, public_key) -> ReplaySummary:
 
 
 
-&nbsp; entries    = load_jsonl(ledger_path)
+  entries    = load_jsonl(ledger_path)
 
-&nbsp; violations = \[]
+  violations = \[]
 
-&nbsp; prev       = None
+  prev       = None
 
-&nbsp; seen_nonces = {}     // empty set
-
-
-
-&nbsp; FOR i, entry IN enumerate(entries):
+  seen_nonces = {}     // empty set
 
 
 
-&nbsp;   // Phase 1 — Schema
-
-&nbsp;   schema_errors = ValidateSchema(entry)
-
-&nbsp;   IF schema_errors:
-
-&nbsp;     violations.append(Violation("schema", i, schema_errors))
-
-&nbsp;     CONTINUE   // cannot verify chain or sig for malformed entry
+  FOR i, entry IN enumerate(entries):
 
 
 
-&nbsp;   // Phase 1 — Sequence
+    // Phase 1 — Schema
 
-&nbsp;   expected_seq = i
+    schema_errors = ValidateSchema(entry)
 
-&nbsp;   IF entry.sequence != expected_seq:
+    IF schema_errors:
 
-&nbsp;     violations.append(Violation("sequence_gap", i,
+      violations.append(Violation("schema", i, schema_errors))
 
-&nbsp;       expected=expected_seq, actual=entry.sequence))
-
-
-
-&nbsp;   // Phase 1 — Chain
-
-&nbsp;   IF i == 0:
-
-&nbsp;     expected_hash = GENESIS_HASH
-
-&nbsp;   ELSE:
-
-&nbsp;     expected_hash = hex(SHA-256(JCS(signing_surface(prev))))
-
-&nbsp;   IF entry.causal_hash != expected_hash:
-
-&nbsp;     violations.append(Violation("chain_break", i,
-
-&nbsp;       expected=expected_hash, actual=entry.causal_hash))
+      CONTINUE   // cannot verify chain or sig for malformed entry
 
 
 
-&nbsp;  // Phase 1 — Nonce uniqueness
+    // Phase 1 — Sequence
 
-&nbsp;  IF entry.nonce IN seen_nonces:
+    expected_seq = i
 
-&nbsp;     violations.append(Violation("schema", i,
+    IF entry.sequence != expected_seq:
 
-&nbsp;     detail="Duplicate nonce — nonces MUST be unique per ledger"))
+      violations.append(Violation("sequence_gap", i,
 
-&nbsp;      seen_nonces.add(entry.nonce)
-
-
-
-&nbsp;   // Phase 2 — Signature
-
-&nbsp;   IF NOT VerifySignature(entry):
-
-&nbsp;     violations.append(Violation("invalid_signature", i))
+        expected=expected_seq, actual=entry.sequence))
 
 
 
-&nbsp;   prev = entry
+    // Phase 1 — Chain
+
+    IF i == 0:
+
+      expected_hash = GENESIS_HASH
+
+    ELSE:
+
+      expected_hash = hex(SHA-256(JCS(signing_surface(prev))))
+
+    IF entry.causal_hash != expected_hash:
+
+      violations.append(Violation("chain_break", i,
+
+        expected=expected_hash, actual=entry.causal_hash))
 
 
 
-&nbsp; RETURN ReplaySummary(
+   // Phase 1 — Nonce uniqueness
 
-&nbsp;   total_entries   = len(entries),
+   IF entry.nonce IN seen_nonces:
 
-&nbsp;   violations      = violations,
+      violations.append(Violation("schema", i,
 
-&nbsp;   chain_valid     = not any(v.type in ("chain_break","sequence_gap") for v in violations),
+      detail="Duplicate nonce — nonces MUST be unique per ledger"))
 
-&nbsp;   signatures_valid= not any(v.type == "invalid_signature" for v in violations),
+       seen_nonces.add(entry.nonce)
 
-&nbsp;   schema_valid    = not any(v.type == "schema" for v in violations),
 
-&nbsp; )
+
+    // Phase 2 — Signature
+
+    IF NOT VerifySignature(entry):
+
+      violations.append(Violation("invalid_signature", i))
+
+
+
+    prev = entry
+
+
+
+  RETURN ReplaySummary(
+
+    total_entries   = len(entries),
+
+    violations      = violations,
+
+    chain_valid     = not any(v.type in ("chain_break","sequence_gap") for v in violations),
+
+    signatures_valid= not any(v.type == "invalid_signature" for v in violations),
+
+    schema_valid    = not any(v.type == "schema" for v in violations),
+
+  )
 
 ```
 
@@ -980,7 +980,7 @@ The genesis entry is the first entry appended to a new ledger. It MUST:
 
 - Have `causal_hash` equal to the genesis hash sentinel:
 
-&nbsp; `"0000000000000000000000000000000000000000000000000000000000000000"`
+  `"0000000000000000000000000000000000000000000000000000000000000000"`
 
 - Be signed with the agent's Ed25519 private key
 
@@ -1018,13 +1018,13 @@ For every entry after the genesis entry, the producer MUST:
 
 FUNCTION ComputeCausalHash(prev_envelope) -> string:
 
-&nbsp; signing_surface = ConstructSigningSurface(prev_envelope)
+  signing_surface = ConstructSigningSurface(prev_envelope)
 
-&nbsp; canonical_bytes = JCS(signing_surface)
+  canonical_bytes = JCS(signing_surface)
 
-&nbsp; digest          = SHA-256(canonical_bytes)
+  digest          = SHA-256(canonical_bytes)
 
-&nbsp; RETURN lowercase_hex(digest)   // always 64 characters
+  RETURN lowercase_hex(digest)   // always 64 characters
 
 ```
 
@@ -1176,7 +1176,7 @@ This section defines 33 invariants that a compliant implementation MUST satisfy.
 
 **INV-07** Mutating the `sequence` field of a signed envelope MUST cause signature verification to return False.
 
-&nbsp;
+ 
 
 **INV-08** Mutating the `gef_version` field of a signed envelope MUST cause signature verification to return False.
 
@@ -1460,7 +1460,7 @@ anchor_value = SHA-256(causal_hash_of_last_entry || sequence_number || timestamp
 
 ```
 
-&nbsp;
+ 
 
 Suitable external systems: a public transparency log, an immutable object store with write-once semantics, or a public blockchain.
 
@@ -1552,7 +1552,7 @@ A GEF-compliant implementation MUST:
 
 10\. Produce byte-identical canonical bytes and chain hashes for all
 
-&nbsp;   test vectors in Section 12.2.
+    test vectors in Section 12.2.
 
 
 
@@ -1574,25 +1574,25 @@ Input signing surface (before JCS):
 
 {
 
-&nbsp; "gef_version": "1.0",
+  "gef_version": "1.0",
 
-&nbsp; "record_id": "550e8400-e29b-41d4-a716-446655440000",
+  "record_id": "550e8400-e29b-41d4-a716-446655440000",
 
-&nbsp; "record_type": "execution",
+  "record_type": "execution",
 
-&nbsp; "agent_id": "agent-test-001",
+  "agent_id": "agent-test-001",
 
-&nbsp; "signer_public_key": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+  "signer_public_key": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
 
-&nbsp; "sequence": 0,
+  "sequence": 0,
 
-&nbsp; "nonce": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+  "nonce": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
 
-&nbsp; "timestamp": "2026-02-26T00:00:00.000Z",
+  "timestamp": "2026-02-26T00:00:00.000Z",
 
-&nbsp; "causal_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "causal_hash": "0000000000000000000000000000000000000000000000000000000000000000",
 
-&nbsp; "payload": {"action": "initialize"}
+  "payload": {"action": "initialize"}
 
 }
 
@@ -1802,7 +1802,7 @@ following changes are made:
 
 - Changing the definition of `causal_hash` (e.g., hashing the full
 
-&nbsp; envelope instead of the signing surface).
+  envelope instead of the signing surface).
 
 
 
@@ -1834,9 +1834,9 @@ changes. The following changes are minor:
 
 - Adding new optional metadata fields that are stored in the ledger
 
-&nbsp; JSON but are **NOT** included in the signing surface. Such fields do
+  JSON but are **NOT** included in the signing surface. Such fields do
 
-&nbsp; not affect canonicalization, chain hashes, or signatures.
+  not affect canonicalization, chain hashes, or signatures.
 
 - Clarifications to existing normative text that do not change behavior.
 
@@ -2244,7 +2244,7 @@ A new record type may be added by:
 
 1\. Opening a proposal in the GEF specification repository: 
 
-&nbsp;  `https://github.com/viruswami5511/guardclaw`
+   `https://github.com/viruswami5511/guardclaw`
 
 2\. Providing: the proposed string value, its semantic definition, the use case it addresses, and evidence that existing record types do not cover the use case.
 
@@ -2286,23 +2286,23 @@ RFC 8785 JCS sorts JSON object keys by Unicode code point order of their UTF-8 e
 
 ```
 
-&nbsp;1.  agent_id            (a-g-e-n-t-_-i-d)
+ 1.  agent_id            (a-g-e-n-t-_-i-d)
 
-&nbsp;2.  causal_hash         (c-a-u-s-a-l-_-h)
+ 2.  causal_hash         (c-a-u-s-a-l-_-h)
 
-&nbsp;3.  gef_version         (g-e-f-_-v)
+ 3.  gef_version         (g-e-f-_-v)
 
-&nbsp;4.  nonce               (n-o-n-c-e)
+ 4.  nonce               (n-o-n-c-e)
 
-&nbsp;5.  payload             (p-a-y-l-o-a-d)
+ 5.  payload             (p-a-y-l-o-a-d)
 
-&nbsp;6.  record_id           (r-e-c-o-r-d-_-i-d)
+ 6.  record_id           (r-e-c-o-r-d-_-i-d)
 
-&nbsp;7.  record_type         (r-e-c-o-r-d-_-t-y-p-e)
+ 7.  record_type         (r-e-c-o-r-d-_-t-y-p-e)
 
-&nbsp;8.  sequence            (s-e-q)
+ 8.  sequence            (s-e-q)
 
-&nbsp;9.  signer_public_key   (s-i-g-n-e-r)
+ 9.  signer_public_key   (s-i-g-n-e-r)
 
 10\.  timestamp           (t-i-m-e)
 
