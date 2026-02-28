@@ -419,7 +419,7 @@ If step 5 returns `False`, emit violation type `invalid_signature` for this entr
 ### 7.4 Verifying a Full Ledger
 
 ```
-PROCEDURE VerifyLedger(ledger_path, public_key) -> ReplaySummary:
+PROCEDURE VerifyLedger(ledger_path) -> ReplaySummary:
 
   entries     = load_jsonl(ledger_path)
   violations  = []
@@ -469,6 +469,8 @@ PROCEDURE VerifyLedger(ledger_path, public_key) -> ReplaySummary:
     schema_valid     = not any(v.type == "schema" for v in violations),
   )
 ```
+The verifier authenticates cryptographic integrity only. It confirms that the ledger was produced by whoever holds the private key corresponding to `signer_public_key`. It does not verify the real-world identity of the key holder, nor does it validate the key against any external registry, certificate authority, or PKI system. External trust validation of `signer_public_key` — including key ownership, revocation status, and identity binding — is outside the scope of GEF and is the responsibility
+of the application layer.
 
 ---
 
@@ -801,7 +803,7 @@ For each of the following mutations applied to a signed envelope, verification M
 | Language | Repository | Verified Version | Status |
 |---|---|---|---|
 | Python (reference) | https://github.com/viruswami5511/guardclaw | v0.5.1 | Stable |
-| Go | https://github.com/viruswami5511/guardclaw/tree/master/cross_lang_proof | v0.5.1 | Verified (proof bundle) | v0.5.1 | Verified (proof bundle) |
+| Go | https://github.com/viruswami5511/guardclaw/tree/master/cross_lang_proof | v0.5.1 | Verified (proof bundle) |
 
 The cross-language proof bundle (Python + Go, byte-identical verification) is publicly available at:  `https://github.com/viruswami5511/guardclaw/tree/master/cross_lang_proof`
 
