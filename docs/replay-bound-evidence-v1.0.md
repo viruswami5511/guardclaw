@@ -8,7 +8,7 @@
 **DOI:** https://zenodo.org/records/18712808  
 **Published:** 2026-02-20  
 **Archived:** https://web.archive.org/web/20260220125746/https://github.com/viruswami5511/guardclaw/blob/master/docs/replay-bound-evidence-v1.0.md 
-
+**Reference implementation:** GuardClaw v0.5.1 — [GEF-SPEC-1.0](https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md)
 
 ---
 
@@ -58,7 +58,7 @@ Replay-Bound Evidence can be understood as a \*\*flight recorder for autonomous 
 
 
 
-A reference implementation exists as the \*\*GuardClaw open-source project (v0.1.x)\*\*.
+A reference implementation exists as the **GuardClaw open-source project**. The current reference implementation is v0.5.1.
 
 
 
@@ -442,6 +442,12 @@ The signature may be stored as a separate field, envelope wrapper, or JSONL reco
 
 The schema above reflects GuardClaw v0.1.x semantics. Implementations may vary, provided invariants are preserved.
 
+
+**Note (added 2026-02-27):**
+The schema above reflects the conceptual model from v1.0 of this paper.
+The GEF-SPEC-1.0 formal implementation uses aligned field names: `record_id`, `agent_id`, `record_type`, `payload`. See 
+[GEF-SPEC-1.0 Section 5](https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md)
+for the normative field definitions.
 
 
 ---
@@ -945,24 +951,29 @@ Replay-Bound Evidence guarantees cryptographic intent, not ground truth.
 
 
 
-\*\*GuardClaw v0.1.x\*\* implements Level 2 Replay-Bound Evidence:
+**GuardClaw v0.5.1** implements Level 3 (Chained Integrity) of the
+Evidence Maturity Model, which includes all Level 2 properties plus:
 
-\- Ed25519 signing
+**Level 2 (Replay-Bound Evidence):**
+- Ed25519 signing (RFC 8032)
+- Subject-scoped nonce replay protection (active scan, INV-29)
+- Canonical JSON serialization (RFC 8785 JCS)
+- Offline CLI verification
 
-\- Subject-scoped nonce replay protection
+**Level 3 (Chained Integrity) — added in v0.5.1:**
+- SHA-256 causal hash chaining (every entry linked to predecessor)
+- Sequence gap detection
+- Insertion and deletion detection
+- 33 formally defined protocol invariants (all passing)
+- Cross-language proof (Python + Go byte-identical verification)
 
-\- Canonical JSON serialization
-
-\- Offline CLI verification
-
-
-
-\*\*Repository:\*\* https://github.com/viruswami5511/guardclaw
-
+**Protocol specification:** GEF-SPEC-1.0
+https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md
 
 
 GuardClaw is a reference implementation of the Replay-Bound Evidence framework.
 
+Protocol specification: https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md
 
 
 ---

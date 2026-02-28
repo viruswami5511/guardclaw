@@ -29,16 +29,18 @@ CI one-liners:
     guardclaw verify ledger.jsonl --format compact >> audit.log
 """
 
+import hashlib
 import json
 import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 import click
 
 from guardclaw.core.replay import ReplayEngine, ReplaySummary, ChainViolation
+from guardclaw import canonical_json_encode
 
 
 # ── ANSI color ────────────────────────────────────────────────────────────────
@@ -90,6 +92,51 @@ def _row_fail(label: str, value: str) -> str:
 def _row_info(label: str, value: str) -> str:
     label_col = _Color.dim(f"{label:<16}")
     return f"  {label_col}     {_Color.dim(value)}"
+
+
+# ── Head hash helper ──────────────────────────────────────────────────────────
+
+def _compute_head_hash(engine: ReplayEngine) -> Tuple[Optional[str], Optional[int]]:
+    """
+    Compute the chain head hash and head sequence.
+
+    Definition (locked per GEF-SPEC-1.0):
+        head_hash = hex(SHA-256(JCS(signing_surface(last_entry))))
+
+    This is the causal_hash any subsequent entry would reference.
+    It is a deterministic commitment to the entire ledger history up to
+    this point. Suitable for external anchoring (Git, RFC 3161, etc.).
+
+    IMPORTANT: Must be called on the unfiltered engine to represent
+    true ledger commitment. Filtering (--agent, --range) must not
+    affect the head hash.
+
+    Returns (head_hash_hex, head_sequence) or (None, None) if empty.
+    """
+    if not engine.envelopes:
+        return None, None
+    try:
+        last = engine.envelopes[-1]
+        record_type = last.record_type
+        if hasattr(record_type, "value"):
+            record_type = record_type.value
+        signing_surface = {
+            "gef_version":       last.gef_version,
+            "record_id":         last.record_id,
+            "record_type":       record_type,
+            "agent_id":          last.agent_id,
+            "signer_public_key": last.signer_public_key,
+            "sequence":          last.sequence,
+            "nonce":             last.nonce,
+            "timestamp":         last.timestamp,
+            "causal_hash":       last.causal_hash,
+            "payload":           last.payload,
+        }
+        canonical_bytes = canonical_json_encode(signing_surface)
+        head_hash = hashlib.sha256(canonical_bytes).hexdigest()
+        return head_hash, last.sequence
+    except Exception:
+        return None, None
 
 
 # ── CLI command ───────────────────────────────────────────────────────────────
@@ -173,10 +220,7 @@ def verify_command(
 
     # ── File check ────────────────────────────────────────────
     if not ledger_path.exists():
-        _emit_error(
-            f"Ledger not found: {ledger}",
-            fmt, quiet,
-        )
+        _emit_error(f"Ledger not found: {ledger}", fmt, quiet)
         sys.exit(2)
 
     # ── Parse --range ─────────────────────────────────────────
@@ -200,7 +244,7 @@ def verify_command(
     # ── Load ──────────────────────────────────────────────────
     file_mb  = ledger_path.stat().st_size / (1024 * 1024)
     parallel = not no_parallel
-    engine = ReplayEngine(parallel=parallel, silent=True)
+    engine   = ReplayEngine(parallel=parallel, silent=True)
     t_start  = time.perf_counter()
 
     try:
@@ -214,6 +258,11 @@ def verify_command(
     except Exception as e:
         _emit_error(f"Unexpected error: {e}", fmt, quiet)
         sys.exit(2)
+
+    # ── Head hash BEFORE filtering ────────────────────────────
+    # Must represent full unfiltered ledger commitment.
+    # Filtering (--agent, --range) must not affect this value.
+    head_hash, head_sequence = _compute_head_hash(engine)
 
     # ── Apply filters ─────────────────────────────────────────
     original_count = len(engine.envelopes)
@@ -249,6 +298,11 @@ def verify_command(
     t_elapsed = time.perf_counter() - t_start
     rate      = active_count / t_elapsed if t_elapsed > 0 else 0
 
+    # ── Ledger validity — chain + signatures + schema ─────────
+    # chain_valid alone is insufficient: a ledger with intact chain
+    # but invalid signatures or schema violations is not clean.
+    ledger_valid = len(summary.violations) == 0
+
     # ── Export ────────────────────────────────────────────────
     if export_path:
         try:
@@ -262,7 +316,7 @@ def verify_command(
 
     # ── Output ────────────────────────────────────────────────
     if quiet:
-        sys.exit(0 if summary.chain_valid else 1)
+        sys.exit(0 if ledger_valid else 1)
 
     if fmt == "json":
         _output_json(
@@ -270,18 +324,22 @@ def verify_command(
             t_elapsed, rate,
             filter_note, filtered,
             original_count, export_path,
+            head_hash, head_sequence,
+            ledger_valid,
         )
     elif fmt == "compact":
-        _output_compact(summary, ledger_path, t_elapsed, rate)
+        _output_compact(summary, ledger_path, t_elapsed, rate, ledger_valid)
     else:
         _output_human(
             summary, ledger_path, file_mb,
             t_elapsed, rate,
             filter_note, filtered,
             original_count, export_path, parallel,
+            head_hash, head_sequence,
+            ledger_valid,
         )
 
-    sys.exit(0 if summary.chain_valid else 1)
+    sys.exit(0 if ledger_valid else 1)
 
 
 # ── Human output ──────────────────────────────────────────────────────────────
@@ -297,8 +355,10 @@ def _output_human(
     original_count: int,
     export_path:    Optional[str],
     parallel:       bool,
+    head_hash:      Optional[str],
+    head_sequence:  Optional[int],
+    ledger_valid:   bool,
 ) -> None:
-    valid     = summary.chain_valid
     BAR_HEAVY = "═" * 68
     BAR_LIGHT = "─" * 68
 
@@ -330,8 +390,9 @@ def _output_human(
     # ── Verification status ───────────────────────────────────
     chain_v  = [v for v in summary.violations if v.violation_type == "chain_break"]
     seq_v    = [v for v in summary.violations if v.violation_type == "sequence_gap"]
-    sig_v    = [v for v in summary.violations if v.violation_type == "invalid_signature"]
     schema_v = [v for v in summary.violations if v.violation_type == "schema"]
+
+    total = summary.total_entries
 
     # Chain integrity
     if not chain_v:
@@ -342,7 +403,6 @@ def _output_human(
         ))
 
     # Signatures
-    total = summary.total_entries
     if summary.invalid_signatures == 0:
         click.echo(_row_ok("Signatures",
             f"{summary.valid_signatures:,} / {total:,} valid"
@@ -364,10 +424,8 @@ def _output_human(
     # Sequence continuity
     if not seq_v:
         if total > 0:
-            first_s = engine_first_seq(summary)
-            last_s  = first_s + total - 1
             click.echo(_row_ok("Sequence",
-                f"{first_s:,} → {last_s:,}  (no gaps)"
+                f"0 → {total - 1:,}  (no gaps)"
             ))
         else:
             click.echo(_row_ok("Sequence", "empty ledger"))
@@ -394,6 +452,16 @@ def _output_human(
         click.echo(_row_info("Last entry",
             f"{summary.last_timestamp}  "
             + _Color.dim(f"[seq {total - 1:,}]")
+        ))
+
+    # ── Chain head hash (full ledger commitment) ──────────────
+    if head_hash and head_sequence is not None:
+        short = head_hash[:16] + "..." + head_hash[-8:]
+        click.echo(_row_info("Chain Head",
+            _Color.cyan(short) + _Color.dim(f"  [seq {head_sequence}]")
+        ))
+        click.echo(_row_info("",
+            _Color.dim("hex(SHA-256(JCS(last_entry)))  ·  use for external anchoring")
         ))
 
     click.echo()
@@ -440,7 +508,7 @@ def _output_human(
 
     # ── Final verdict ─────────────────────────────────────────
     click.echo(f"  {BAR_LIGHT}")
-    if valid:
+    if ledger_valid:
         click.echo(_Color.green(_Color.bold(
             f"  ✅  VALID  ·  0 violations  ·  ledger integrity confirmed"
         )))
@@ -451,11 +519,6 @@ def _output_human(
         )))
     click.echo(f"  {BAR_LIGHT}")
     click.echo()
-
-
-def engine_first_seq(summary: ReplaySummary) -> int:
-    """Best-effort first sequence number from summary."""
-    return 0
 
 
 # ── JSON output ───────────────────────────────────────────────────────────────
@@ -470,6 +533,9 @@ def _output_json(
     filtered:       bool,
     original_count: int,
     export_path:    Optional[str],
+    head_hash:      Optional[str],
+    head_sequence:  Optional[int],
+    ledger_valid:   bool,
 ) -> None:
     out = {
         "guardclaw_verify": {
@@ -480,7 +546,10 @@ def _output_json(
             "original_count":       original_count,
             "filter_applied":       filtered,
             "filter":               filter_note.strip() or None,
+            "ledger_valid":         ledger_valid,
             "chain_valid":          summary.chain_valid,
+            "chain_head_hash":      head_hash,
+            "chain_head_sequence":  head_sequence,
             "valid_signatures":     summary.valid_signatures,
             "invalid_signatures":   summary.invalid_signatures,
             "violation_count":      len(summary.violations),
@@ -508,10 +577,11 @@ def _output_json(
 # ── Compact output ────────────────────────────────────────────────────────────
 
 def _output_compact(
-    summary:     ReplaySummary,
-    ledger_path: Path,
-    elapsed:     float,
-    rate:        float,
+    summary:      ReplaySummary,
+    ledger_path:  Path,
+    elapsed:      float,
+    rate:         float,
+    ledger_valid: bool,
 ) -> None:
     """
     Single-line output for shell pipelines, monitoring, and audit logs.
@@ -520,12 +590,12 @@ def _output_compact(
         VALID    ledger.jsonl  100,000 entries  0 violations  3.241s  30,856/sec
         INVALID  audit.jsonl   50,000 entries   3 violations  1.812s  27,594/sec
     """
-    status  = "VALID"   if summary.chain_valid else "INVALID"
+    status  = "VALID"   if ledger_valid else "INVALID"
     vcount  = len(summary.violations)
     entries = summary.total_entries
     name    = ledger_path.name
 
-    if summary.chain_valid:
+    if ledger_valid:
         line = (
             _Color.green(f"{status:<8}") +
             f"  {name:<30}  {entries:>10,} entries  "
@@ -552,6 +622,7 @@ def _emit_error(msg: str, fmt: str, quiet: bool) -> None:
             "guardclaw_verify": {
                 "error":       msg,
                 "chain_valid": False,
+                "ledger_valid": False,
             }
         }))
     else:
@@ -559,4 +630,3 @@ def _emit_error(msg: str, fmt: str, quiet: bool) -> None:
             _Color.red(f"\n  ❌  ERROR: {msg}\n"),
             err=True,
         )
-	

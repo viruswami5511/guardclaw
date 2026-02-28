@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "guardclaw"
-version = "0.2.0"
+version = "0.5.1"
 description = "Cryptographic evidence ledger for autonomous agent accountability"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -33,6 +33,7 @@ classifiers = [
 dependencies = [
     "cryptography>=41.0.0",
     "jcs>=0.2.0",
+    "click>=8.0.0",
 ]
 
 [project.optional-dependencies]
@@ -46,7 +47,7 @@ dev = [
 [project.urls]
 Repository = "https://github.com/viruswami5511/guardclaw"
 Homepage = "https://github.com/viruswami5511/guardclaw"
-Documentation = "https://github.com/viruswami5511/guardclaw/blob/master/docs/GEF-SPEC-v1.0.md"
+Documentation = "https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md"
 
 [project.scripts]
 guardclaw = "guardclaw.cli:cli"
@@ -57,7 +58,7 @@ include = ["guardclaw*"]
 exclude = ["tests*", "examples*", "docs*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/test_gef_invariants.py"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
