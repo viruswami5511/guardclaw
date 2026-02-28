@@ -6,7 +6,7 @@ Thank you for your interest in GuardClaw.
 
 
 
-This is an early-stage open-source project implementing
+This is an open-source project implementing
 
 \*\*Replay-Bound Evidence\*\* — a minimal cryptographic framework
 
@@ -73,27 +73,15 @@ See [SECURITY.md](https://github.com/viruswami5511/guardclaw/blob/master/SECURIT
 ---
 
 
-
-\## What Is Not in Scope Right Now
-
-
-
-\- Feature requests beyond the Level 2 maturity scope
+## What Is Not in Scope Right Now
 
 \- Blockchain or consensus layer integrations
 
 \- GUI or dashboard tooling
 
-\- Language ports (Python is the reference implementation)
+\- New language implementations without first coordinating on test vectors (see SPEC.md Section 12.2)
 
-
-
-Level 3+ features (hash chaining, gap detection, RFC 3161 timestamping)
-
-are planned but not yet being accepted as PRs.
-
-Open an issue to discuss first.
-
+Level 4 features (RFC 3161 timestamping, key rotation audit trails) are planned but not yet being accepted as PRs. Open an issue to discuss first.
 
 
 ---
@@ -110,9 +98,7 @@ Open an issue to discuss first.
 
 3\. For bugs: include Python version, OS, and exact command that failed
 
-4\. For protocol critique: reference the specific section of
-   [PROTOCOL.md](docs/PROTOCOL.md) or the
-   [paper](docs/replay-bound-evidence-v1.0.md)
+4\. For protocol critique: Reference the specific section of [SPEC.md](SPEC.md) or the [paper](docs/replay-bound-evidence-v1.0.md)
 
 
 
@@ -130,11 +116,9 @@ Open an issue to discuss first.
 
 3\. Make your change
 
-4\. Run the test suite: `pytest`
+4\. Run the full test suite and ensure all 45 pass: `pytest tests/`
 
-5\. Ensure all 16 tests pass before submitting
-
-6\. Open a PR with a clear description of what changed and why
+5\. Open a PR with a clear description of what changed and why
 
 
 

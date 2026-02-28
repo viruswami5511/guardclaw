@@ -248,7 +248,7 @@ A GEF envelope is a JSON object. When stored in the ledger, it is serialized as 
 
 ### 5.1 Field Definitions
 
-An envelope has exactly **eleven fields** when stored in the ledger (ten signing fields plus `signature`). No additional fields are permitted. No fields may be omitted.
+An envelope MUST contain the eleven required fields defined below. In minor versions (v1.1+), additional non-signing fields MAY be present in the stored ledger JSON but MUST NOT be included in the signing surface and MUST NOT affect canonicalization, chain hashes, or signatures. The eleven required fields MUST always be present and MUST NOT be omitted.
 
 | Field | Type | Description |
 |---|---|---|
@@ -351,6 +351,8 @@ The chain hash is computed over the **signing surface**, not the full ledger JSO
 
 Ed25519 uses the Edwards25519 curve as specified in RFC 8032. The signature algorithm is deterministic: given the same private key and message, it always produces the same signature. No external source of randomness is required during signing.
 
+Implementations MUST use pure Ed25519 as defined in RFC 8032 Section 5.1. The Ed25519ph (pre-hash) and Ed25519ctx (context) variants defined in RFC 8032 Sections 5.2 and 5.3 MUST NOT be used unless explicitly specified in a future major version of this specification.
+
 Verification:
 
 ```
@@ -417,7 +419,7 @@ If step 5 returns `False`, emit violation type `invalid_signature` for this entr
 ### 7.4 Verifying a Full Ledger
 
 ```
-PROCEDURE VerifyLedger(ledger_path, public_key) -> ReplaySummary:
+PROCEDURE VerifyLedger(ledger_path) -> ReplaySummary:
 
   entries     = load_jsonl(ledger_path)
   violations  = []
@@ -467,6 +469,8 @@ PROCEDURE VerifyLedger(ledger_path, public_key) -> ReplaySummary:
     schema_valid     = not any(v.type == "schema" for v in violations),
   )
 ```
+The verifier authenticates cryptographic integrity only. It confirms that the ledger was produced by whoever holds the private key corresponding to `signer_public_key`. It does not verify the real-world identity of the key holder, nor does it validate the key against any external registry, certificate authority, or PKI system. External trust validation of `signer_public_key` — including key ownership, revocation status, and identity binding — is outside the scope of GEF and is the responsibility
+of the application layer.
 
 ---
 
@@ -481,6 +485,8 @@ The genesis entry is the first entry appended to a new ledger. It MUST:
   `"0000000000000000000000000000000000000000000000000000000000000000"`
 - Be signed with the agent's Ed25519 private key
 - Have a valid nonce, timestamp, and all other required fields
+
+The genesis hash sentinel (`"000...000"`) MUST NOT appear as the `causal_hash` of any entry with `sequence > 0`. A verifier MUST report a `chain_break` violation if the sentinel appears in any non-genesis entry.
 
 ### 8.2 Subsequent Entries
 
@@ -518,7 +524,7 @@ The file MUST be UTF-8 encoded. No BOM (byte order mark) is permitted.
 A valid ledger file satisfies all of the following:
 
 - Each line is a valid JSON object.
-- Each JSON object contains exactly the eleven fields defined in Section 5.
+- Each JSON object contains at least the eleven required fields defined in Section 5. Additional non-signing fields MAY be present as permitted by the `gef_version` minor version in use.
 - The sequence of objects forms a valid GEF chain (Sections 6.2, 8).
 - All signatures are valid (Section 6.3).
 
@@ -590,7 +596,7 @@ This section defines 33 invariants that a compliant implementation MUST satisfy.
 ### 10.3 Schema Invariants (INV-15 – INV-22)
 
 | ID | Invariant |
-|---|---|
+|---	|---|
 | **INV-15** | An envelope with an unregistered `record_type` value MUST be rejected at construction time (the producer MUST raise an error). |
 | **INV-16** | An envelope with an unregistered `record_type` value injected into the raw JSON MUST be detected by the schema validator and reported as a `schema` violation. |
 | **INV-17** | A `nonce` field that is not exactly 32 lowercase hex characters MUST be detected by the schema validator. |
@@ -797,10 +803,11 @@ For each of the following mutations applied to a signed envelope, verification M
 | Language | Repository | Verified Version | Status |
 |---|---|---|---|
 | Python (reference) | https://github.com/viruswami5511/guardclaw | v0.5.1 | Stable |
-| Go | *(pending submission)* | — | In progress |
+| Go | https://github.com/viruswami5511/guardclaw/tree/master/cross_lang_proof | v0.5.1 | Verified (proof bundle) |
+
+The cross-language proof bundle (Python + Go, byte-identical verification) is publicly available at:  `https://github.com/viruswami5511/guardclaw/tree/master/cross_lang_proof`
 
 To register a new verified implementation, open a proposal at `https://github.com/viruswami5511/guardclaw` with evidence of test vector compliance and all 33 invariants passing.
-
 ---
 
 ## 13. Implementation Guidance
@@ -1077,7 +1084,8 @@ An implementation MUST NOT use `record_type` values not registered in the specif
 A centralized, controlled registry ensures any two parties using GEF can exchange ledgers and interpret every record type without bilateral negotiation. This is the same model used by IANA for HTTP status codes, MIME types, and TLS cipher suites.
 
 **Namespaced experimental record types (informative).**
-During development, implementations MAY use record types prefixed with `x-` (e.g., `"x-audit"`, `"x-observe"`). These are not registered, not portable, and will be rejected by standard verifiers. They are intended only for prototyping before a formal registration proposal is submitted.
+During development and for application-specific use cases, implementations MAY use record types prefixed with `x-`(e.g., `"x-audit"`, `"x-mcp-call"`, `"x-policy-decision"`).
+These MUST follow all signing, chaining, and schema rules. They are not registered, not portable across implementations by default, and will be rejected by strict v1.0 verifiers unless both parties agree to accept them. To promote an `x-` type to a registered type, submit a proposal per the governance model above.
 
 ---
 

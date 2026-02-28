@@ -40,9 +40,16 @@ htmlcov/
 
 # GuardClaw specific
 .guardclaw/
-test_*.py
-!tests/
 
 # Build artifacts
 *.whl
 *.tar.gz
+
+_audit_key.json
+_audit_test/
+_tamper_test/
+test_audit_log.txt
+*.egg-info/
+dist/
+build/
+_test_venv/
