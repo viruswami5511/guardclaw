@@ -4,7 +4,7 @@
 
 \*\*Status:\*\* Stable  
 
-\*\*Version:\*\* v0.5.1  
+\*\*Version:\*\* v0.5.2  
 
 \*\*Protocol:\*\* GEF-SPEC-1.0
 
@@ -70,7 +70,7 @@ Please include:
 
 
 
-GuardClaw v0.5.1 uses:
+GuardClaw v0.5.2 uses:
 
 
 
@@ -174,7 +174,7 @@ Known limitations (by design):
 
 
 
-GuardClaw v0.5.1 implements GEF-SPEC-1.0 — a stable, formally specified cryptographic accountability protocol. It is a foundational accountability layer, not a complete security system. Use additional controls where your threat model requires them.
+GuardClaw v0.5.2 implements GEF-SPEC-1.0 — a stable, formally specified cryptographic accountability protocol. It is a foundational accountability layer, not a complete security system. Use additional controls where your threat model requires them.
 
 
 

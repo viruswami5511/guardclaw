@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "guardclaw"
-version = "0.5.1"
+version = "0.5.2"
 description = "Cryptographic evidence ledger for autonomous agent accountability"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -58,7 +58,15 @@ include = ["guardclaw*"]
 exclude = ["tests*", "examples*", "docs*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests/test_gef_invariants.py"]
+testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+markers = [
+    "critical: must pass before HN launch",
+    "hard: security gap, fix before launch",
+    "medium: UX gap, fix if time permits",
+    "critical: marks tests as critical path (deselect with '-m not critical')",
+    "hard: marks tests as hard/stress tests",
+    "medium: marks tests as medium priority",
+]

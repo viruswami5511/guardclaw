@@ -1,7 +1,7 @@
 # GuardClaw Threat Model
 
 **Status:** Stable  
-**Version:** v0.5.1  
+**Version:** v0.5.2  
 **Protocol:** GEF-SPEC-1.0  
 **Audience:** Security reviewers, contributors, enterprise evaluators  
 **Scope:** Cryptographic evidence ledger for AI agent accountability  
@@ -12,7 +12,7 @@ Full security specification: [SPEC.md Section 11](SPEC.md)
 
 ## 1. Purpose
 
-GuardClaw v0.5.1 implements GEF-SPEC-1.0 — a cryptographic accountability protocol for autonomous AI agents.
+GuardClaw v0.5.2 implements GEF-SPEC-1.0 — a cryptographic accountability protocol for autonomous AI agents.
 
 It provides:
 
@@ -60,7 +60,7 @@ GuardClaw guarantees:
 
 ## 3. Explicit Non-Guarantees
 
-GuardClaw v0.5.1 does NOT guarantee:
+GuardClaw v0.5.2 does NOT guarantee:
 
 - Prevention of malicious actions by the agent
 - Authorization or policy correctness

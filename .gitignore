@@ -1,36 +1,49 @@
-# Python
+# ============================================================
+# Python Bytecode / C Extensions
+# ============================================================
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 
-# Virtual Environment
+# ============================================================
+# Virtual Environments
+# ============================================================
+.venv/
 venv/
 env/
 ENV/
-.venv
+cleanenv/
+testenv/
+hntest/
+.hn_env/
+_test_venv/
 
-# Distribution / packaging
+# ============================================================
+# Distribution / Packaging
+# ============================================================
 build/
 dist/
 *.egg-info/
 *.egg
-wheels/
+*.whl
+*.tar.gz
 pip-wheel-metadata/
+wheels/
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Testing
+# ============================================================
+# Testing / Coverage
+# ============================================================
 .pytest_cache/
 .coverage
 htmlcov/
 .tox/
 .nox/
 
-# IDEs
+# ============================================================
+# IDE / Editor
+# ============================================================
 .vscode/
 .idea/
 *.swp
@@ -38,18 +51,26 @@ htmlcov/
 *~
 .DS_Store
 
-# GuardClaw specific
+# ============================================================
+# GuardClaw Runtime Artifacts
+# ============================================================
 .guardclaw/
-
-# Build artifacts
-*.whl
-*.tar.gz
-
-_audit_key.json
+bench_1m/
+_clean_test/
+_inv_test/
+_test_fix/
 _audit_test/
 _tamper_test/
+_audit_key.json
 test_audit_log.txt
-*.egg-info/
-dist/
-build/
-_test_venv/
+
+# ============================================================
+# Misc
+# ============================================================
+*.manifest
+*.spec
+# Logs
+*.log
+
+# OS temp
+Thumbs.db

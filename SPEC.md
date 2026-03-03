@@ -28,7 +28,7 @@ This document is the authoritative specification of the GEF protocol. It defines
 
 ## Status of This Document
 
-This document specifies **GEF Protocol Version 1.0**, which is the first stable release of the specification. It is published alongside the reference implementation (`guardclaw` v0.5.1, Python) and a verified cross-language proof demonstrating byte-identical behavior between the Python reference implementation and an independent Go implementation.
+This document specifies **GEF Protocol Version 1.0**, which is the first stable release of the specification. It is published alongside the reference implementation (`guardclaw` v0.5.2, Python) and a verified cross-language proof demonstrating byte-identical behavior between the Python reference implementation and an independent Go implementation.
 
 The specification is stable. Breaking changes require a new major version (`GEF-SPEC-2.0`) and a corresponding migration path. Additive changes (new record types, new optional fields) may be published as minor amendments without incrementing the major version.
 
@@ -802,8 +802,8 @@ For each of the following mutations applied to a signed envelope, verification M
 
 | Language | Repository | Verified Version | Status |
 |---|---|---|---|
-| Python (reference) | https://github.com/viruswami5511/guardclaw | v0.5.1 | Stable |
-| Go | https://github.com/viruswami5511/guardclaw/tree/master/cross_lang_proof | v0.5.1 | Verified (proof bundle) |
+| Python (reference) | https://github.com/viruswami5511/guardclaw | v0.5.2 | Stable |
+| Go | https://github.com/viruswami5511/guardclaw/tree/master/cross_lang_proof | v0.5.2 | Verified (proof bundle) |
 
 The cross-language proof bundle (Python + Go, byte-identical verification) is publicly available at:  `https://github.com/viruswami5511/guardclaw/tree/master/cross_lang_proof`
 

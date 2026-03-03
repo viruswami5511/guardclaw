@@ -1,369 +1,367 @@
-See this created in earlier chat-
-
 # GuardClaw
 
-**Cryptographic accountability protocol for autonomous AI agents.**
-
-#Guardclaw
-
+**Cryptographic integrity for autonomous AI agents.**
 
 [![PyPI](https://img.shields.io/pypi/v/guardclaw)](https://pypi.org/project/guardclaw)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Protocol](https://img.shields.io/badge/protocol-GEF--SPEC--1.0-green)](SPEC.md)
-[![Tests](https://img.shields.io/badge/tests-45%2F45%20passing-brightgreen)](tests/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/guardclaw)
 
+---
 
-GuardClaw implements the **GuardClaw Execution Framework (GEF)** — a language-neutral cryptographic protocol for tamper-evident AI agent audit trails.
+## What Problem This Solves
 
-As AI agents begin executing financial transactions, accessing production systems, and acting autonomously, conventional logging is insufficient for audit, dispute resolution, and regulatory non-repudiation.
+AI agents are beginning to:
 
-Every agent action is **Ed25519-signed**, **SHA-256 hash-chained**, and **RFC 8785 canonicalized**. Any post-signing modification to any field
-of any entry breaks verification. Any third party with the public key can verify offline — no central server, no SaaS trust required.
+- Execute financial transactions  
+- Modify production infrastructure  
+- Invoke tools and shell commands autonomously  
+- Operate without synchronous human review  
+
+Traditional logs are mutable.  
+Observability pipelines are not evidence.  
+Database rows can be edited.  
+
+If an AI agent makes a critical decision, how do you prove — cryptographically — what it actually did?
+
+**GuardClaw implements GEF-SPEC-1.0**, a language-neutral protocol for generating:
+
+> Tamper-evident, offline-verifiable execution ledgers.
+
+No server required.  
+No SaaS dependency.  
+No central verifier.  
+
+Just a file and a public key.
 
 ---
 
-## Try It in 3 Commands
+## What GuardClaw Is
+
+GuardClaw is an **evidence layer**.
+
+It provides:
+
+- Deterministic canonicalization (RFC 8785 JCS)
+- Causal hash chaining (SHA-256)
+- Per-entry authenticity (Ed25519)
+- Strict sequence monotonicity
+- Replay and tamper detection
+- Offline verification via CLI or library
+
+It does **not**:
+
+- Enforce policy
+- Prevent actions
+- Provide consensus
+- Guarantee truthfulness
+- Protect against private key compromise
+
+It proves what was recorded — not whether it was wise.
+
+---
+
+## Integrity Model (Precise Definitions)
+
+**Chain Integrity**  
+= Correctness of `causal_hash` linkage  
+Each entry must hash to the next.
+
+```
+causal_hash[N] = SHA256(JCS(entry[N-1].to_chain_dict()))
+```
+Genesis entry uses a 64-zero sentinel value.
+
+**Ledger Integrity**  
+= Chain integrity  
++ Strict sequence monotonicity (0 → N, no gaps)  
++ Schema validity  
++ Uniform GEF version  
+
+If any of these fail, verification fails.
+
+---
+
+## Install
 
 ```bash
 pip install guardclaw
-git clone https://github.com/viruswami5511/guardclaw-demo
-cd guardclaw-demo && python run_demo.py
 ```
 
-[Full demo with tamper simulation →](https://github.com/viruswami5511/guardclaw-demo)
+Requires Python 3.9+
 
-[Run this demo yourself →](https://github.com/viruswami5511/guardclaw-demo)
+Core dependencies:
 
----
-
-## What GuardClaw Provides
-
-- **Ed25519 per-envelope signing** — RFC 8032 pure Ed25519
-- **SHA-256 causal hash chaining** — every entry cryptographically bound to its predecessor
-- **RFC 8785 JCS canonical serialization** — byte-identical across Python, Go, any language
-- **Active nonce uniqueness enforcement** — duplicate replay detected (INV-29)
-- **Sequence gap detection** — deleted or reordered entries detected
-- **Offline verifiability** — ledger file + public key is sufficient
-- **33 formally defined protocol invariants** — 45/45 tests passing
-- **Cross-language proof** — Python and Go produce byte-identical chain hashes and interverifiable signatures
-
-## What GuardClaw Does NOT Provide
-
-- Policy enforcement or authorization control
-- Distributed consensus
-- Tail truncation detection without external anchoring (Level 4)
-- Trusted timestamp authority (RFC 3161 — future)
-- Key compromise detection
-- Cross-ledger replay prevention
-
-> GuardClaw is an evidence layer, not a control plane.
-> It proves what was recorded. It does not prevent actions.
+- `cryptography` (Ed25519)
+- `jcs` (RFC 8785 canonicalization)
+- `click` (CLI)
 
 ---
 
-## Status
-
-**Stable — v0.5.1** | **Protocol: GEF-SPEC-1.0**
-
-Appropriate for:
-- Development and internal AI agent audit trails
-- Research prototypes and compliance evaluation
-- Any system requiring offline-verifiable cryptographic evidence
-
-The reference implementation is production-stable and covered by invariant tests and cross-language proof artifacts.
-
-For financial settlement, critical infrastructure, or regulatory-grade deployments: evaluate key management and Level 4 anchoring requirements
-against your threat model. See THREAT_MODEL.md.
-
----
-
-## Installation
-
-```bash
-pip install guardclaw
-```
-
-Requires Python 3.9+. Core dependencies: `cryptography>=41.0.0`, `jcs>=0.2.0`.
-
----
-
-## Quick Start
+## 30-Second Example
 
 ```python
 from guardclaw import GEFLedger, Ed25519KeyManager, RecordType
 
-# Generate a signing key
+# Generate signing key
 key = Ed25519KeyManager.generate()
-key.save("agent_key.json")
 
-# Create a ledger (ledger_path is a directory)
 ledger = GEFLedger(
     key_manager=key,
-    agent_id="agent-prod-001",
-    ledger_path="agent_ledger"
-)
-
-# Record agent actions
-ledger.emit(
-    record_type=RecordType.INTENT,
-    payload={"instruction": "analyze quarterly report"}
+    agent_id="agent-001",
+    ledger_path="agent_ledger",
+    mode="strict"   # strict = fsync enabled
 )
 
 ledger.emit(
-    record_type=RecordType.EXECUTION,
-    payload={"action": "file.read", "target": "q4_report.pdf"}
+    RecordType.EXECUTION,
+    payload={"action": "shell.exec", "cmd": "rm temp.txt"}
 )
 
 ledger.emit(
-    record_type=RecordType.RESULT,
-    payload={"status": "success", "summary": "Analysis complete"}
+    RecordType.RESULT,
+    payload={"status": "success"}
 )
 
-# Check chain integrity
-print(ledger.verify_chain())  # True
-print(ledger.get_stats())
+ledger.close()
+
+print("Chain valid:", ledger.verify_chain())
 ```
 
-Each envelope is automatically:
-- Assigned a cryptographically random 32-character hex nonce
-- SHA-256 hash-chained to its predecessor
-- Ed25519-signed before the call returns
+Ledger file:
+```
+agent_ledger/ledger.jsonl
+```
 
-The ledger is written to `agent_ledger/ledger.jsonl`.
+Each line is one signed execution envelope.  
+The ledger is a plain append-only JSONL file.
 
 ---
 
-## Verifying a Ledger
-
-```python
-from guardclaw.core.replay import ReplayEngine
-
-engine = ReplayEngine(silent=True)
-engine.load("agent_ledger/ledger.jsonl")
-summary = engine.verify()
-
-print(f"Entries:    {summary.total_entries}")
-print(f"Violations: {len(summary.violations)}")
-print(f"Chain:      {'VALID' if summary.chain_valid else 'BROKEN'}")
-```
-
-Or via CLI:
+## CLI Verification
 
 ```bash
 guardclaw verify agent_ledger/ledger.jsonl
 ```
 
-Verification requires only:
-- The ledger `.jsonl` file
-- The signer's public key (embedded in every envelope)
-
-No network access. No shared secrets. No trust in the producing system.
-
----
-
-## Demo: Tamper Detection in Action
-
-```
-python run_demo.py
-→  intent        nonce=3f8a2b1d4e...  chain=...4a2f1c8e
-→  execution     nonce=9c1e5d2f7a...  chain=...b7e39210
-→  execution     nonce=1a7f3e8b2c...  chain=...c4d891b3
-→  execution     nonce=5b2d9c1f4e...  chain=...8f2a1e4d
-→  result        nonce=7e1c4f8a2b...  chain=...2e7b4f1a
-→ Ledger written: demo_ledger.jsonl
-
-python verify.py
-→ RESULT: CLEAN — 0 violations
-
-python tamper.py
-→ Entry #2 payload modified (endpoint + result changed)
-
-python verify.py
-→ RESULT: TAMPERED
-→ [seq 2] INVALID_SIGNATURE
-→ [seq 3] CHAIN_BREAK
-→ 2 violations detected
-```
-
-Run this demo yourself →
-
----
-
-## The GEF Envelope
-
-Every entry in the ledger is a signed JSON envelope with 11 fields:
-
-| Field | Type | Description |
-|---|---|---|
-| `gef_version` | string | Protocol version (`"1.0"`) |
-| `record_id` | string | UUID v4, unique per entry |
-| `record_type` | string | `execution`, `intent`, `result`, `failure` |
-| `agent_id` | string | Identifier of the acting agent |
-| `signer_public_key` | string | Ed25519 public key (64 lowercase hex chars) |
-| `sequence` | integer | Zero-based monotonically increasing integer |
-| `nonce` | string | 128-bit CSPRNG hex string (32 chars) |
-| `timestamp` | string | ISO 8601 UTC with millisecond precision |
-| `causal_hash` | string | SHA-256 of previous entry's signing surface |
-| `payload` | object | Application-defined JSON object |
-| `signature` | string | Ed25519 over JCS canonical bytes (excluded from signing surface) |
-
-The signing surface is the 10-field object excluding `signature`.
-Chain and signature integrity are independently verifiable.
-
-Full specification: SPEC.md
-
----
-
-## Three Protocol Contracts
-
-**Contract I — RFC 8785 JCS**
-Every signing surface is canonicalized using RFC 8785 JCS. Identical inputs produce byte-identical output on any conformant RFC 8785 implementation.
-
-**Contract II — SHA-256 Causal Chain**
-```
-causal_hash[N] = hex(SHA-256(JCS(signing_surface[N-1])))
-```
-The genesis entry uses 64 zero characters as the sentinel value. Any modification to any entry breaks the chain from that point forward.
-
-**Contract III — Ed25519 Authenticity**
-Every envelope is signed with pure Ed25519 (RFC 8032 §5.1). `signer_public_key` is embedded in the signing surface — no external PKI required for verification.
-
----
-
-## Cross-Language Proof
-
-The `cross_lang_proof/` directory contains a publicly reproducible proof that the Python reference implementation and an independent Go implementation produce:
-
-- Byte-identical JCS canonical bytes
-- Byte-identical SHA-256 chain hashes
-- Ed25519 signatures from Python that verify correctly in Go
-- Single-byte mutation breaks verification in both
-
-```
-cross_lang_proof/
-├── emit_proof.py       ← Python: generate proof bundle
-├── verify_proof.go     ← Go: verify byte-identical output
-├── proof_bundle.json   ← The proof artifact
-└── run_proof.ps1       ← One-command runner (Windows)
-```
-
-The proof bundle includes canonical bytes, SHA-256 hashes, and signatures for fully reproducible independent verification.
-
-See SPEC.md Section 12.3 for the full verified implementations table.
-
----
-
-## Conceptual Foundation
-
-GuardClaw v0.5.1 implements **Level 3 (Chained Integrity)** of the Evidence Maturity Model defined in the Replay-Bound Evidence whitepaper.
-
-| Level | Name | GuardClaw |
-|---|---|---|
-| 2 | Replay-Bound Evidence — signed + replay-protected | ✅ v0.1.x+ |
-| 3 | Chained Integrity — + SHA-256 hash chain, gap detection | ✅ v0.5.1 |
-| 4 | Anchored Provenance — + RFC 3161 timestamping | Planned |
-
-The Evidence Maturity Model is defined in the whitepaper above. It is not part of the GEF protocol specification.
-
-**Whitepaper:** Replay-Bound Evidence: Cryptographic Accountability for Autonomous AI Systems
-**DOI:** 10.5281/zenodo.18712808 | Published: 2026-02-20 | CC-BY 4.0
-
-The whitepaper defines the **"why"**.
-GEF-SPEC-1.0 defines the **"how"**.
-
----
-
-## Protocol Specification
-
-SPEC.md — GEF-SPEC-1.0, the complete normative specification.
-
-Covers:
-- 11-field envelope schema and encoding rules
-- Three protocol contracts (JCS, SHA-256, Ed25519)
-- 33 formal invariants
-- Full verification procedure
-- Security considerations and threat model
-- Versioning and forward compatibility
-- Non-normative design rationale
-
----
-
-## Testing
-
+Also works without relying on PATH:
 ```bash
-pip install -e ".[dev]"
-pytest tests/test_gef_invariants.py -v
+python -m guardclaw verify agent_ledger/ledger.jsonl
 ```
 
-Expected: **45 passed** — all 33 GEF-SPEC-1.0 invariants covered.
+Machine-readable output:
+```bash
+guardclaw verify agent_ledger/ledger.jsonl --format json
+```
 
-Test classes:
-- `TestSigningInvariants` — INV-01 to INV-08
-- `TestChainInvariants` — INV-09 to INV-14
-- `TestSchemaInvariants` — INV-15 to INV-22
-- `TestReplayInvariants` — INV-23 to INV-28
-- `TestNonceInvariants` — INV-29 to INV-30
-- `TestCrossLanguageInvariants` — INV-31 to INV-33
+CI mode (exit code only):
+```bash
+guardclaw verify agent_ledger/ledger.jsonl --quiet
+```
+
+Verification checks:
+
+- Chain integrity
+- Signature validity
+- Sequence continuity
+- Schema correctness
+- GEF version uniformity
 
 ---
 
-## Security
+## Envelope Structure (GEF-SPEC-1.0)
 
-- SECURITY.md — supported versions, vulnerability reporting, cryptographic primitives
-- THREAT_MODEL.md — threat classification by scenario
-- SPEC.md Section 11 — full security considerations and known limitations
+Each ledger entry contains 11 fields:
 
-To report a vulnerability privately: GitHub Security Advisories
+| Field | Description |
+|-------|-------------|
+| `gef_version` | Protocol version (`"1.0"`) |
+| `record_id` | UUIDv4 |
+| `record_type` | `execution`, `intent`, `result`, etc. |
+| `agent_id` | Agent identifier |
+| `signer_public_key` | Ed25519 public key (hex) |
+| `sequence` | Monotonically increasing integer |
+| `nonce` | 128-bit CSPRNG hex |
+| `timestamp` | ISO-8601 UTC |
+| `causal_hash` | SHA-256 of previous entry |
+| `payload` | Application-defined JSON |
+| `signature` | Ed25519 signature |
+
+Signing surface excludes `signature`.
+
+`to_chain_dict()` == `to_signing_dict()`
+
+Both exclude `signature`.
 
 ---
 
-## Contributing
+## External Anchoring (Recommended)
 
-See CONTRIBUTING.md.
+The CLI outputs a **Chain Head Hash**:
+```
+SHA256(JCS(last_entry.to_chain_dict()))
+```
 
-To implement GEF in another language, see SPEC.md Section 12 for
-compliance requirements and test vectors.
+This can be:
 
-To register a verified implementation, open a proposal with evidence of
-test vector compliance and all 33 invariants passing.
+- Published in a Git commit
+- Anchored to a transparency log
+- Stored in an external system
+
+This prevents undetectable tail truncation when the anchored head hash is externally persisted.
 
 ---
 
-## Repository Structure
+## Performance (1M Entry Benchmark)
 
+**Environment:**
+
+- Windows laptop
+- 8GB RAM
+- Python 3.13
+- Single-threaded
+- Strict mode (fsync enabled)
+- Ed25519 signing enabled
+
+**Results:**
+
+| Metric | Value |
+|--------|-------|
+| Entries written | 1,000,000 |
+| Write speed | ~762 entries/sec |
+| Ledger size | ~567 MB |
+| Full verify speed | ~9,213 entries/sec |
+| Stream verify speed | ~2,728 entries/sec |
+| Stream verify memory | ~39 MB |
+| Full verify memory | ~1.3 GB |
+
+**Notes:**
+
+- Full verify loads all envelopes (O(N) memory)
+- Stream verify is O(1) memory
+- Signature verification included in verify speeds
+
+---
+
+## Real Use Case Example
+
+An autonomous LLM agent executing production shell commands can emit a GuardClaw ledger.
+
+After an incident, an auditor can:
+
+1. Obtain the ledger file
+2. Run `guardclaw verify`
+3. Confirm cryptographically whether any execution entries were altered
+
+No access to original runtime required.
+
+---
+
+## Security Model
+
+**GuardClaw guarantees:**
+
+- Tamper detection
+- Reordering detection
+- Mid-chain deletion detection
+- Signature authenticity
+
+**GuardClaw does NOT guarantee:**
+
+- Protection against key compromise
+- Truthfulness of payload content
+- Trusted timestamps
+- Distributed consensus
+
+If the signing key is compromised, history can be rewritten.
+
+External anchoring mitigates deletion attacks.
+
+See `THREAT_MODEL.md`.
+
+---
+
+## Tests
+
+Current suite:
+
+- 62 adversarial tests (1 intentionally skipped)
+- Tamper attacks
+- Replay attacks
+- Key confusion
+- Crash recovery
+- Canonicalization determinism
+
+Run locally:
+```bash
+pytest
 ```
-guardclaw/
-├── guardclaw/              ← Python package
-│   └── core/
-│       ├── models.py       ← ExecutionEnvelope, RecordType
-│       ├── replay.py       ← ReplayEngine (two-phase verification)
-│       ├── crypto.py       ← Ed25519KeyManager
-│       └── canonical.py    ← RFC 8785 JCS canonicalization
-├── tests/
-│   └── test_gef_invariants.py  ← 45 invariant tests
-├── cross_lang_proof/       ← Python + Go cross-language proof
-├── docs/
-│   └── replay-bound-evidence-v1.0.md  ← Conceptual whitepaper (DOI)
-├── SPEC.md                 ← GEF-SPEC-1.0 (authoritative protocol spec)
-├── THREAT_MODEL.md         ← Threat classification
-├── SECURITY.md             ← Security policy
-└── CONTRIBUTING.md         ← Contribution guide
-```
+
+All tests should pass.
+
+---
+
+## Why Not X?
+
+**Why not a database?**  
+Databases can be edited without cryptographic detection.
+
+**Why not blockchain?**  
+GuardClaw is single-agent, local-first, no consensus overhead.
+
+**Why not CloudTrail?**  
+Requires trusting the provider.
+
+**Why not append-only logs?**  
+Append-only without cryptographic linkage does not provide tamper evidence.
+
+---
+
+## Specification
+
+**GEF-SPEC-1.0** defines:
+
+- Envelope schema
+- Canonicalization contract
+- Hash chain contract
+- Signature contract
+- Verification algorithm
+- Security considerations
+
+See:
+[SPEC.md](SPEC.md)
+
+---
+
+## Design Principles
+
+**Simplicity**  
+The ledger is a plain append-only JSONL file. No databases. No proprietary formats.
+
+**Trust Assumptions**  
+Security assumes private key secrecy and the cryptographic hardness of SHA-256 and Ed25519.
+
+**Offline Verification**  
+Anyone with the public key can verify the entire ledger without access to the system that generated it.
+
+---
+
+## Status
+
+- **Stable:** v0.5.2
+- **Protocol:** GEF-SPEC-1.0
+- **Production-ready** as a single-agent integrity layer.
 
 ---
 
 ## License
 
-Apache License 2.0 — see LICENSE.
+Apache License 2.0
 
 ---
 
 ## Philosophy
 
-> Observability is not evidence.
-> Logging is not proof.
-> Trust is not verification.
-
-GuardClaw provides cryptographic evidence of what was recorded.
-Nothing more. Nothing less.
+> Observability is not evidence.  
+> Logs are not proof.  
+> Integrity is measurable.
