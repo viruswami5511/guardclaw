@@ -1,0 +1,14 @@
+{
+  "genesis_id": "genesis-a08faed5-238a-4158-8d07-d0064e4c1c7c",
+  "ledger_name": "Production Ledger",
+  "timestamp": "2026-03-07T10:30:38.805Z",
+  "created_by": "admin@example.com",
+  "root_public_key": "b376f7fa6e876ba02c8b371a4724e77f30fb8872960c00c22b21d7d471bba0de",
+  "purpose": "AI Agent Authorization - Production",
+  "jurisdiction": "US-CA",
+  "metadata": {
+    "environment": "production",
+    "version": "1.0.0"
+  },
+  "signature": "e2yMr2QiD5ps8T0PXYE_7-2x42sGNNFQCtDDH43vFMAbokmuqeN3o8QHURDtYpn1ndplV4p4PBdLKTUAjffQAg"
+}

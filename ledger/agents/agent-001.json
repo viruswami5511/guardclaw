@@ -1,0 +1,16 @@
+{
+  "agent_id": "agent-001",
+  "agent_name": "Production Agent",
+  "timestamp": "2026-03-07T10:30:38.822Z",
+  "registered_by": "admin@example.com",
+  "agent_public_key": "7edfd73b3b7d44c75ee620d5bec83809c77b498ea28db97f9163eab06cb19406",
+  "capabilities": [
+    "file:read",
+    "file:write",
+    "file:delete"
+  ],
+  "valid_from": "2026-01-01T00:00:00.000Z",
+  "valid_until": "2027-01-01T00:00:00.000Z",
+  "metadata": {},
+  "signature": "8fM1RIXXSTQFu0ZU7LV0WzIT39ndyfA6xeiw6u7oFec68vwKvFr7EHxFADVsSo-fHjARHY0U8yHYWMt7mIo6Ag"
+}

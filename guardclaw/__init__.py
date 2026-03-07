@@ -10,7 +10,7 @@ All 0.1.x APIs are deprecated. Migration: replace EvidenceEmitter
 with GEFLedger and Observer.on_* with ledger.emit().
 """
 
-__version__     = "0.5.2"
+__version__     = "0.6.0"
 __gef_version__ = "1.0"
 
 from guardclaw.core.models import (

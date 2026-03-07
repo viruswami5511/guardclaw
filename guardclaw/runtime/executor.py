@@ -7,12 +7,9 @@ from datetime import datetime, timezone
 from dataclasses import dataclass
 import uuid
 
-from guardclaw.core.models import (
-    AuthorizationProof,
-    ExecutionReceipt,
-    ActionType,
-    utc_now,
-)
+from guardclaw.core.proofs import AuthorizationProof, ExecutionReceipt
+from guardclaw.core.time import gef_timestamp as utc_now
+from guardclaw.core.action_types import ActionType
 from guardclaw.core.exceptions import AuthorizationError
 from guardclaw.core.crypto import Ed25519KeyManager
 

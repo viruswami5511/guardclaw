@@ -8,11 +8,22 @@ They are emitted as the FIRST envelope in a GEFLedger via:
 """
 
 import uuid
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field, asdict
 
-from guardclaw.core.crypto import Ed25519KeyManager, canonical_json_encode
-from guardclaw.core.observers import utc_now
+from guardclaw.core.crypto import Ed25519KeyManager
+from guardclaw.core.canonical import canonical_json_encode
+
+
+# ─────────────────────────────────────────────────────────────
+# Local UTC helper (replaces missing observers.utc_now)
+# ─────────────────────────────────────────────────────────────
+
+def utc_now() -> str:
+    """Return current UTC timestamp in GEF format: YYYY-MM-DDTHH:MM:SS.mmmZ"""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + \
+           f"{datetime.now(timezone.utc).microsecond // 1000:03d}Z"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -48,12 +59,11 @@ class GenesisRecord:
             ledger_name=     ledger_name,
             timestamp=       utc_now(),
             created_by=      created_by,
-            root_public_key= root_key_manager.public_key_hex(),
+            root_public_key= root_key_manager.public_key_hex,
             purpose=         purpose,
             jurisdiction=    jurisdiction,
             metadata=        metadata or {},
         )
-        # Sign over canonical bytes of the record (excluding signature)
         d = asdict(record)
         d.pop("signature")
         record.signature = root_key_manager.sign(canonical_json_encode(d))
@@ -112,7 +122,7 @@ class AgentRegistration:
             agent_name=       agent_name,
             timestamp=        utc_now(),
             registered_by=    registered_by,
-            agent_public_key= agent_key_manager.public_key_hex(),
+            agent_public_key= agent_key_manager.public_key_hex,
             capabilities=     capabilities,
             valid_from=       valid_from,
             valid_until=      valid_until,

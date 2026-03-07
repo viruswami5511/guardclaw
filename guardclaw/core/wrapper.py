@@ -14,7 +14,8 @@ from functools import wraps
 from datetime import datetime, timezone
 import uuid
 
-from guardclaw.core.models import ActionRequest, ActionType
+from guardclaw.core.requests import ActionRequest
+from guardclaw.core.action_types import ActionType
 from guardclaw.runtime.context import RuntimeContext
 from guardclaw.runtime.executor import ToolExecutor, ExecutionError
 

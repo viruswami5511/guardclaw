@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "guardclaw"
-version = "0.5.2"
+version = "0.6.0"
 description = "Cryptographic evidence ledger for autonomous agent accountability"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -38,6 +38,7 @@ dependencies = [
 
 [project.optional-dependencies]
 langchain = ["langchain>=0.1.0"]
+crewai = ["crewai>=0.28.0"]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
