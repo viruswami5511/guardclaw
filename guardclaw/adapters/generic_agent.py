@@ -20,7 +20,7 @@ Usage:
     observer.observe_result(result)
 """
 
-from guardclaw.core.emitter import get_global_emitter
+from guardclaw.core.emitter import get_global_ledger as get_global_emitter
 from typing import Any, Optional, Dict, Callable
 from datetime import datetime, timezone
 
