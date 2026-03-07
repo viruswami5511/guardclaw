@@ -9,9 +9,9 @@ from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any, Optional
 
 
-from guardclaw.core.models import AuthorizationProof, ExecutionReceipt, SettlementRecord
-from guardclaw.core.crypto import Ed25519KeyManager, canonical_json_encode
-
+from guardclaw.core.proofs import AuthorizationProof, ExecutionReceipt, Settlement as SettlementRecord
+from guardclaw.core.crypto import Ed25519KeyManager
+from guardclaw.core.canonical import canonical_json_encode
 
 @dataclass
 class VerificationResult:

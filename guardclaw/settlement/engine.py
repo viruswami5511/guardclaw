@@ -14,7 +14,8 @@ from guardclaw.core.models import (
     DecisionType,
     utc_now,
 )
-from guardclaw.core.crypto import Ed25519KeyManager, canonical_json_encode
+from guardclaw.core.crypto import Ed25519KeyManager
+from guardclaw.core.canonical import canonical_json_encode
 from guardclaw.ledger.ledger import Ledger
 
 

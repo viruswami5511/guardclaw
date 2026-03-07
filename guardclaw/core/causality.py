@@ -19,7 +19,8 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 import uuid
 
-from guardclaw.core.crypto import canonical_hash, canonical_json_encode
+from guardclaw.core.crypto import canonical_hash
+from guardclaw.core.canonical import canonical_json_encode
 
 
 @dataclass
