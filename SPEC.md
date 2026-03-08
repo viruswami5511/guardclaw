@@ -125,25 +125,25 @@ GEF is defined as a protocol so that:
 
 ## 2. Design Goals
 
-**G-1 &nbsp; Tamper Evidence.**
+**G-1   Tamper Evidence.**
 Any modification to any field of any envelope — including metadata fields such as `timestamp`, `sequence`, or `agent_id` — must break the cryptographic proof. A verifier must be able to detect the modification without access to the original author.
 
-**G-2 &nbsp; Causal Chain Integrity.**
+**G-2   Causal Chain Integrity.**
 The order of events must be cryptographically enforced. An entry cannot be inserted before, between, or after any other entry without detection. Reordering the ledger must be detectable.
 
-**G-3 &nbsp; Language Neutrality.**
+**G-3   Language Neutrality.**
 The protocol must be implementable in any language that has access to Ed25519 cryptography, SHA-256, and RFC 8785 JSON Canonicalization. No language-specific serialization format, no binary encoding, no platform dependency.
 
-**G-4 &nbsp; Auditability Without Keys.**
+**G-4   Auditability Without Keys.**
 A verifier needs only the signer's public key to verify a complete ledger. Private keys are never required for verification. Any third party with the public key — a regulator, an auditor, a counterparty — can independently verify the ledger.
 
-**G-5 &nbsp; Append-Only Semantics.**
+**G-5   Append-Only Semantics.**
 The ledger is append-only by design. There is no update, no delete, no rewrite. The only valid operation on a ledger is appending a new entry.
 
-**G-6 &nbsp; Crash Consistency.**
+**G-6   Crash Consistency.**
 A partial write (system crash during append) must not corrupt the existing ledger. The corrupted or partial entry is detectable and isolatable. All preceding entries remain verifiable.
 
-**G-7 &nbsp; Minimal Specification Surface.**
+**G-7   Minimal Specification Surface.**
 The protocol is defined by three contracts, ten signing fields, and four record types. The specification is intentionally minimal. Every field has a reason. No field is optional for signing purposes.
 
 ---

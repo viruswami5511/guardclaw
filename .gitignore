@@ -74,3 +74,8 @@ test_audit_log.txt
 
 # OS temp
 Thumbs.db
+.guardclaw/
+ledger/
+keys/
+agent-*/
+.test_ledger

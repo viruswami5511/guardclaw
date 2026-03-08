@@ -124,31 +124,31 @@ Payload schemas defined in Section 3.3 specify minimum required fields. Implemen
 
 {
 
-&nbsp; "gef\_version":    "1.0",
+  "gef\_version":    "1.0",
 
-&nbsp; "record\_id":      "<uuid-v4>",
+  "record\_id":      "<uuid-v4>",
 
-&nbsp; "record\_type":    "<string>",
+  "record\_type":    "<string>",
 
-&nbsp; "subject\_id":     "<string>",
+  "subject\_id":     "<string>",
 
-&nbsp; "ledger\_id":      "<uuid-v4>",
+  "ledger\_id":      "<uuid-v4>",
 
-&nbsp; "sequence":       <integer>,
+  "sequence":       <integer>,
 
-&nbsp; "timestamp\_utc":  "<ISO-8601-UTC>",
+  "timestamp\_utc":  "<ISO-8601-UTC>",
 
-&nbsp; "causal\_hash":    "<hex-sha256 | null>",
+  "causal\_hash":    "<hex-sha256 | null>",
 
-&nbsp; "nonce":          "<uint64-decimal-string>",
+  "nonce":          "<uint64-decimal-string>",
 
-&nbsp; "payload":        { },
+  "payload":        { },
 
-&nbsp; "content\_mode":   "raw | hash-only",
+  "content\_mode":   "raw | hash-only",
 
-&nbsp; "schema\_version": "1.0",
+  "schema\_version": "1.0",
 
-&nbsp; "signature":      "<base64url-ed25519>"
+  "signature":      "<base64url-ed25519>"
 
 }
 
@@ -234,13 +234,13 @@ Implementations MAY define additional `record\_type` values using a reverse-doma
 
 {
 
-&nbsp; "ledger\_name":  "<string>",
+  "ledger\_name":  "<string>",
 
-&nbsp; "created\_by":   "<string>",
+  "created\_by":   "<string>",
 
-&nbsp; "purpose":      "<string>",
+  "purpose":      "<string>",
 
-&nbsp; "public\_key":   "<base64url-ed25519-public-key>"
+  "public\_key":   "<base64url-ed25519-public-key>"
 
 }
 
@@ -254,11 +254,11 @@ Implementations MAY define additional `record\_type` values using a reverse-doma
 
 {
 
-&nbsp; "action\_type":  "<string>",
+  "action\_type":  "<string>",
 
-&nbsp; "parameters":   { },
+  "parameters":   { },
 
-&nbsp; "target":       "<string | null>"
+  "target":       "<string | null>"
 
 }
 
@@ -272,7 +272,7 @@ Implementations MAY define additional `record\_type` values using a reverse-doma
 
 {
 
-&nbsp; "instruction":  "<string>"
+  "instruction":  "<string>"
 
 }
 
@@ -286,11 +286,11 @@ Implementations MAY define additional `record\_type` values using a reverse-doma
 
 {
 
-&nbsp; "status":       "success | failure | partial",
+  "status":       "success | failure | partial",
 
-&nbsp; "output":       "<any | content-commitment>",
+  "output":       "<any | content-commitment>",
 
-&nbsp; "duration\_ms":  <integer>
+  "duration\_ms":  <integer>
 
 }
 
@@ -304,13 +304,13 @@ Implementations MAY define additional `record\_type` values using a reverse-doma
 
 {
 
-&nbsp; "approver\_id":   "<string>",
+  "approver\_id":   "<string>",
 
-&nbsp; "decision":      "approved | rejected",
+  "decision":      "approved | rejected",
 
-&nbsp; "ref\_record\_id": "<uuid-v4>",
+  "ref\_record\_id": "<uuid-v4>",
 
-&nbsp; "reason":        "<string | null>"
+  "reason":        "<string | null>"
 
 }
 
@@ -324,7 +324,7 @@ Implementations MAY define additional `record\_type` values using a reverse-doma
 
 {
 
-&nbsp; "reason":  "<string | null>"
+  "reason":  "<string | null>"
 
 }
 
@@ -498,9 +498,9 @@ When `content\_mode` is `"hash-only"`, sensitive payload fields MUST be replaced
 
 {
 
-&nbsp; "commitment": "<sha256-hex-of-original-utf8-value>",
+  "commitment": "<sha256-hex-of-original-utf8-value>",
 
-&nbsp; "algorithm":  "sha256"
+  "algorithm":  "sha256"
 
 }
 
@@ -606,13 +606,13 @@ This invariant binds each record to its predecessor, forming a tamper-evident ch
 
 \- Modifying any record in the chain invalidates all subsequent
 
-&nbsp; `causal\_hash` values.
+  `causal\_hash` values.
 
 \- The chain can be verified in O(n) time with O(1) space.
 
 \- Chain verification is independent of signature verification;
 
-&nbsp; both MUST pass.
+  both MUST pass.
 
 
 
@@ -694,23 +694,23 @@ A conforming verifier MUST execute the following steps in order. Failure at any 
 
 2\. GENESIS  — Confirm record is type "genesis" with
 
-&nbsp;              sequence=0 and causal\_hash=null.
+               sequence=0 and causal\_hash=null.
 
-&nbsp;              Extract candidate public key from
+               Extract candidate public key from
 
-&nbsp;              payload.public\_key.
+               payload.public\_key.
 
-&nbsp;              Verify the Genesis Record's Ed25519 signature
+               Verify the Genesis Record's Ed25519 signature
 
-&nbsp;              using this candidate public key.
+               using this candidate public key.
 
-&nbsp;              If signature verification fails, REJECT.
+               If signature verification fails, REJECT.
 
-&nbsp;              Only after successful verification, accept
+               Only after successful verification, accept
 
-&nbsp;              payload.public\_key as the trust anchor for
+               payload.public\_key as the trust anchor for
 
-&nbsp;              all subsequent records.
+               all subsequent records.
 
 
 
@@ -720,27 +720,27 @@ A conforming verifier MUST execute the following steps in order. Failure at any 
 
 4\. CHAIN    — For each record\[n] where n > 0, confirm:
 
-&nbsp;              record\[n].causal\_hash ==
+               record\[n].causal\_hash ==
 
-&nbsp;              SHA-256(ExecutionEnvelope(record\[n-1]))
+               SHA-256(ExecutionEnvelope(record\[n-1]))
 
 
 
 5\. NONCE    — For each record, confirm integer(nonce) is
 
-&nbsp;              strictly greater than the last verified nonce
+               strictly greater than the last verified nonce
 
-&nbsp;              for that subject\_id. Gaps are permitted.
+               for that subject\_id. Gaps are permitted.
 
 
 
 6\. SIGN     — For each record, recompute ExecutionEnvelope
 
-&nbsp;              per Section 5 (RFC 8785), verify Ed25519
+               per Section 5 (RFC 8785), verify Ed25519
 
-&nbsp;              signature against the public key from the
+               signature against the public key from the
 
-&nbsp;              Genesis Record.
+               Genesis Record.
 
 
 
@@ -934,31 +934,31 @@ Future versions of this specification may request registration of:
 
 \[RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997.
 
-&nbsp;          https://www.rfc-editor.org/rfc/rfc2119
+           https://www.rfc-editor.org/rfc/rfc2119
 
 
 
 \[RFC8032]  Josefsson, S. and I. Liusvaara, "Edwards-Curve Digital Signature Algorithm (EdDSA)", RFC 8032, January 2017.
 
-&nbsp;          https://www.rfc-editor.org/rfc/rfc8032
+           https://www.rfc-editor.org/rfc/rfc8032
 
 
 
 \[RFC4648]  Josefsson, S., "The Base16, Base32, and Base64 Data Encodings", RFC 4648, October 2006.
 
-&nbsp;          https://www.rfc-editor.org/rfc/rfc4648
+           https://www.rfc-editor.org/rfc/rfc4648
 
 
 
 \[RFC8785]  Rundgren, A., Jordan, B., and S. Erdtman, "JSON Canonicalization Scheme (JCS)", RFC 8785, June 2020.
 
-&nbsp;          https://www.rfc-editor.org/rfc/rfc8785
+           https://www.rfc-editor.org/rfc/rfc8785
 
 
 
 \[FIPS180]  National Institute of Standards and Technology, "Secure Hash Standard (SHS)", FIPS PUB 180-4, August 2015.
 
-&nbsp;          https://doi.org/10.6028/NIST.FIPS.180-4
+           https://doi.org/10.6028/NIST.FIPS.180-4
 
 ```
 
@@ -976,13 +976,13 @@ Future versions of this specification may request registration of:
 
 \[RFC6962]  Laurie, B., Langley, A., and E. Kasper, "Certificate Transparency", RFC 6962, June 2013.
 
-&nbsp;          https://www.rfc-editor.org/rfc/rfc6962
+           https://www.rfc-editor.org/rfc/rfc6962
 
 
 
 \[RFC3161]  Adams, C., et al., "Internet X.509 Public Key Infrastructure Time-Stamp Protocol (TSP)", RFC 3161, August 2001.
 
-&nbsp;          https://www.rfc-editor.org/rfc/rfc3161
+           https://www.rfc-editor.org/rfc/rfc3161
 
 
 
@@ -1052,43 +1052,43 @@ An implementation claiming GEF v1.0 conformance MUST:
 
 {
 
-&nbsp; "gef\_version":    "1.0",
+  "gef\_version":    "1.0",
 
-&nbsp; "record\_id":      "a3f2c1d4-e5b6-7890-abcd-ef1234567890",
+  "record\_id":      "a3f2c1d4-e5b6-7890-abcd-ef1234567890",
 
-&nbsp; "record\_type":    "tool\_call",
+  "record\_type":    "tool\_call",
 
-&nbsp; "subject\_id":     "agent-prod-001",
+  "subject\_id":     "agent-prod-001",
 
-&nbsp; "ledger\_id":      "b4e3d2c1-f6a7-8901-bcde-f01234567891",
+  "ledger\_id":      "b4e3d2c1-f6a7-8901-bcde-f01234567891",
 
-&nbsp; "sequence":       3,
+  "sequence":       3,
 
-&nbsp; "timestamp\_utc":  "2026-02-23T16:30:00.000Z",
+  "timestamp\_utc":  "2026-02-23T16:30:00.000Z",
 
-&nbsp; "causal\_hash":    "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "causal\_hash":    "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
 
-&nbsp; "nonce":          "3",
+  "nonce":          "3",
 
-&nbsp; "payload": {
+  "payload": {
 
-&nbsp;   "action\_type":  "file.delete",
+    "action\_type":  "file.delete",
 
-&nbsp;   "parameters": {
+    "parameters": {
 
-&nbsp;     "path": "/var/logs/archive/2025-01.log"
+      "path": "/var/logs/archive/2025-01.log"
 
-&nbsp;   },
+    },
 
-&nbsp;   "target":       "/var/logs/archive/2025-01.log"
+    "target":       "/var/logs/archive/2025-01.log"
 
-&nbsp; },
+  },
 
-&nbsp; "content\_mode":   "raw",
+  "content\_mode":   "raw",
 
-&nbsp; "schema\_version": "1.0",
+  "schema\_version": "1.0",
 
-&nbsp; "signature":      "base64url-encoded-ed25519-signature-here"
+  "signature":      "base64url-encoded-ed25519-signature-here"
 
 }
 
