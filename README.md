@@ -30,6 +30,9 @@ GuardClaw implements **GEF-SPEC-1.0**, a language-neutral protocol for generatin
 No server required. No SaaS dependency. No central verifier.  
 Just a file and a public key.
 
+
+GuardClaw is especially useful when agents perform financial or irreversible actions.
+
 ---
 
 ## Core Concept
