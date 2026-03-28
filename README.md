@@ -171,7 +171,7 @@ pip install guardclaw[crewai]
 
 ---
 
-## Integrations (v0.6.0)
+## Integrations (v0.6.1)
 
 GuardClaw integrates with AI systems at multiple layers.
 
@@ -376,7 +376,7 @@ SPEC.md
 
 ## Status
 
-Version: v0.6.0  
+Version: v0.6.1  
 Protocol: GEF-SPEC-1.0  
 License: Apache 2.0  
 

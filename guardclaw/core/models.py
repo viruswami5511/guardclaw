@@ -1,7 +1,7 @@
 """
 guardclaw/core/models.py
 
-GEF Data Model — v0.2.0
+GEF Data Model — v0.2.1
 Aligned to: GEF-SPEC-v1.0
 
 THIS FILE IS LOCKED AFTER THIS VERSION.
@@ -12,52 +12,65 @@ PROTOCOL CONTRACTS — Locked. Changes require spec version bump.
 ═══════════════════════════════════════════════════════════════════
 
 CONTRACT 1 — Signing
-    bytes_signed = canonical_json_encode(env.to_signing_dict())
-    algorithm    = Ed25519
-    encoding     = base64url, no padding
+bytes_signed = canonical_json_encode(env.to_signing_dict())
+algorithm    = Ed25519
+encoding     = base64url, no padding
 
 CONTRACT 2 — Chain
-    causal_hash  = SHA-256(canonical_json_encode(prev.to_chain_dict()))
-    first_entry  = GENESIS_HASH ("0" * 64)
-    payload      IN chain dict  → payload mutation breaks forward chain
-    gef_version  IN chain dict  → version is part of chain identity
+causal_hash     = SHA-256(canonical_json_encode(prev.to_chain_dict()))
+first_entry     = GENESIS_HASH ("0" * 64)
+payload IN chain dict     → payload mutation breaks forward chain
+gef_version IN chain dict → version is part of chain identity
 
 CONTRACT 3 — Timestamp
-    format = YYYY-MM-DDTHH:MM:SS.mmmZ  (exactly 3 fractional digits, UTC, Z suffix)
-    source = gef_timestamp() in guardclaw/core/time.py — nowhere else
+format = YYYY-MM-DDTHH:MM:SS.mmmZ (exactly 3 fractional digits, UTC, Z suffix)
+source = gef_timestamp() in guardclaw/core/time.py — nowhere else
 
 CONTRACT 4 — Nonce
-    format   = exactly 32 hex characters (128-bit random entropy)
-    purpose  = anti-replay uniqueness guard per entry
-    semantic = NOT monotonic. sequence = ordering. nonce = uniqueness.
+format   = exactly 32 hex characters (128-bit random entropy)
+purpose  = anti-replay uniqueness guard per entry
+semantic = NOT monotonic. sequence = ordering. nonce = uniqueness.
 
 CONTRACT 5 — Vocabulary
-    record_type must be a RecordType constant.
-    enforced at create() → ValueError
-    validated at from_dict() time via validate_schema()
+record_type must be a RecordType constant.
+enforced at create() → ValueError
+validated at from_dict() time via validate_schema()
 
 CONTRACT 6 — Version
-    gef_version travels inside every envelope.
-    included in to_signing_dict() and to_chain_dict().
-    all envelopes in a single ledger MUST share identical gef_version.
-    enforcement: replay raises GEFVersionError on version mismatch within ledger.
+gef_version travels inside every envelope.
+included in to_signing_dict() and to_chain_dict().
+all envelopes in a single ledger MUST share identical gef_version.
+enforcement: replay raises GEFVersionError on version mismatch within ledger.
 
 CONTRACT 7 — signer_public_key
-    must be exactly 64 valid lowercase hex characters (32-byte Ed25519 public key raw)
-    validated in validate_schema()
+must be exactly 64 valid lowercase hex characters (32-byte Ed25519 public key raw)
+validated in validate_schema()
 
 ═══════════════════════════════════════════════════════════════════
 CROSS-LANGUAGE GUARANTEE
 ═══════════════════════════════════════════════════════════════════
 A Rust/Go/TypeScript implementation that reproduces:
-    to_signing_dict()       — fields, names, includes gef_version + payload
-    to_chain_dict()         — fields, names, includes gef_version + payload
+    to_signing_dict()      — fields, names, includes gef_version + payload
+    to_chain_dict()        — fields, names, includes gef_version + payload
     canonical_json_encode() — RFC 8785 JCS
     sha256(canonical_json_encode(prev.to_chain_dict()))
 
 ...will produce byte-for-byte identical chain hashes and signatures.
 That is the definition of a working protocol.
 ═══════════════════════════════════════════════════════════════════
+
+CHANGE LOG:
+    v0.2.1 — verify_signature() now returns tuple[bool, str] instead of bool.
+             reason values:
+               ""          — valid signature
+               "encoding"  — non-canonical base64url (contains + / =)
+               "mismatch"  — valid encoding but wrong signature bytes
+             This enables replay.py to emit invalid_signature_encoding
+             vs invalid_signature as separate violation types.
+             All callers that previously used:
+               if env.verify_signature():
+             must now use:
+               sig_ok, sig_reason = env.verify_signature()
 """
 
 import hashlib
@@ -65,11 +78,10 @@ import re
 import secrets
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from guardclaw.core.canonical import canonical_json_encode
 from guardclaw.core.time import gef_timestamp
-
 
 # ─────────────────────────────────────────────────────────────
 # GEF Constants
@@ -79,7 +91,7 @@ GEF_VERSION  = "1.0"
 GENESIS_HASH = "0" * 64
 
 # Nonce: exactly 32 hex characters = 16 bytes = 128-bit entropy
-_NONCE_HEX_LENGTH      = 32
+_NONCE_HEX_LENGTH = 32
 
 # signer_public_key: raw Ed25519 public key = 32 bytes = 64 hex chars
 _PUBLIC_KEY_HEX_LENGTH = 64
@@ -89,7 +101,6 @@ _PUBLIC_KEY_HEX_LENGTH = 64
 _TIMESTAMP_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$"
 )
-
 
 # ─────────────────────────────────────────────────────────────
 # Exceptions
@@ -101,7 +112,6 @@ class GEFVersionError(Exception):
     A ledger must be version-homogeneous.
     """
     pass
-
 
 # ─────────────────────────────────────────────────────────────
 # Record Type Vocabulary — Locked and Enforced
@@ -146,7 +156,6 @@ _VALID_RECORD_TYPES: Set[str] = {
     RecordType.ADMIN_ACTION,
 }
 
-
 # ─────────────────────────────────────────────────────────────
 # SchemaValidationResult
 # ─────────────────────────────────────────────────────────────
@@ -183,17 +192,17 @@ class ExecutionEnvelope:
     See module docstring for all seven protocol contracts.
     """
 
-    gef_version:       str
-    record_id:         str
-    record_type:       str
-    agent_id:          str
-    signer_public_key: str
-    sequence:          int
-    nonce:             str
-    timestamp:         str
-    causal_hash:       str
-    payload:           Dict[str, Any]
-    signature:         Optional[str] = None
+    gef_version:        str
+    record_id:          str
+    record_type:        str
+    agent_id:           str
+    signer_public_key:  str
+    sequence:           int
+    nonce:              str
+    timestamp:          str
+    causal_hash:        str
+    payload:            Dict[str, Any]
+    signature:          Optional[str] = None
 
     # ── Constructor ───────────────────────────────────────────
 
@@ -250,17 +259,17 @@ class ExecutionEnvelope:
         # ──────────────────────────────────────────────────────
 
         return cls(
-            gef_version=       GEF_VERSION,
-            record_id=         f"gef-{uuid.uuid4()}",
-            record_type=       record_type,
-            agent_id=          agent_id,
-            signer_public_key= signer_public_key,
-            sequence=          sequence,
-            nonce=             secrets.token_hex(_NONCE_HEX_LENGTH // 2),
-            timestamp=         gef_timestamp(),
-            causal_hash=       cls._compute_causal_hash(prev),
-            payload=           payload,
-            signature=         None,
+            gef_version       = GEF_VERSION,
+            record_id         = f"gef-{uuid.uuid4()}",
+            record_type       = record_type,
+            agent_id          = agent_id,
+            signer_public_key = signer_public_key,
+            sequence          = sequence,
+            nonce             = secrets.token_hex(_NONCE_HEX_LENGTH // 2),
+            timestamp         = gef_timestamp(),
+            causal_hash       = cls._compute_causal_hash(prev),
+            payload           = payload,
+            signature         = None,
         )
 
     @classmethod
@@ -274,20 +283,20 @@ class ExecutionEnvelope:
 
         This separation lets replay distinguish:
             "unknown record_type injected post-write" (schema violation)
-            vs "field missing entirely" (KeyError from from_dict)
+        vs "field missing entirely"                   (KeyError from from_dict)
         """
         return cls(
-            gef_version=       data["gef_version"],
-            record_id=         data["record_id"],
-            record_type=       data["record_type"],
-            agent_id=          data["agent_id"],
-            signer_public_key= data["signer_public_key"],
-            sequence=          data["sequence"],
-            nonce=             data["nonce"],
-            timestamp=         data["timestamp"],
-            causal_hash=       data["causal_hash"],
-            payload=           data.get("payload", {}),
-            signature=         data.get("signature"),
+            gef_version       = data["gef_version"],
+            record_id         = data["record_id"],
+            record_type       = data["record_type"],
+            agent_id          = data["agent_id"],
+            signer_public_key = data["signer_public_key"],
+            sequence          = data["sequence"],
+            nonce             = data["nonce"],
+            timestamp         = data["timestamp"],
+            causal_hash       = data["causal_hash"],
+            payload           = data.get("payload", {}),
+            signature         = data.get("signature"),
         )
 
     # ── Schema Validation ─────────────────────────────────────
@@ -297,9 +306,9 @@ class ExecutionEnvelope:
         Validate this envelope's schema against all GEF protocol rules.
 
         Called by:
-            ReplayEngine.load()      → fail fast on corrupt/injected entry
-            verify_envelope()        → before signature check
-            CLI verify command       → before any processing
+            ReplayEngine.load()   → fail fast on corrupt/injected entry
+            verify_envelope()     → before signature check
+            CLI verify command    → before any processing
 
         Returns SchemaValidationResult — not bool — so callers
         can report the EXACT violation rather than silently pass/fail.
@@ -410,8 +419,8 @@ class ExecutionEnvelope:
         CONTRACT 1 — The EXACT dict signed by Ed25519.
 
         Includes: all fields EXCEPT signature.
-        Includes: payload     (content must be signed)
-        Includes: gef_version (envelope is self-describing)
+        Includes: payload      (content must be signed)
+        Includes: gef_version  (envelope is self-describing)
 
         Cross-language: any implementation reproducing these exact field
         names and values and passing through JCS will verify a GEF signature.
@@ -474,7 +483,7 @@ class ExecutionEnvelope:
         """
         THE ONLY path to produce bytes for signing or verification.
 
-        canonical_json_encode(self.to_signing_dict())
+            canonical_json_encode(self.to_signing_dict())
 
         This is the complete specification of "what GuardClaw signs."
         No other path exists. No alternate method. No shortcut.
@@ -534,7 +543,7 @@ class ExecutionEnvelope:
     def verify_signature(
         self,
         override_public_key_hex: Optional[str] = None,
-    ) -> bool:
+    ) -> Tuple[bool, str]:
         """
         Verify the Ed25519 signature over canonical_bytes_for_signing().
 
@@ -549,22 +558,37 @@ class ExecutionEnvelope:
                                      Defaults to self.signer_public_key.
 
         Returns:
-            True  — signature valid over current canonical bytes
-            False — unsigned, tampered field, wrong key, or any failure
+            (True,  "")           — signature valid over current canonical bytes
+            (False, "encoding")   — signature field contains non-canonical
+                                    base64url characters (e.g. '+' '/' '=')
+            (False, "mismatch")   — correct base64url encoding but wrong bytes,
+                                    unsigned envelope, or any other failure
             Never raises.
 
-        GEF Law: returns False for ANY envelope where any signed field
-            was mutated after sign() was called.
+        GEF Law: returns (False, ...) for ANY envelope where any signed field
+        was mutated after sign() was called.
+
+        IMPORTANT — callers must unpack the tuple:
+            sig_ok, sig_reason = env.verify_signature()
+            if sig_ok: ...
         """
         if not self.signature:
-            return False
+            return False, "mismatch"
 
         from guardclaw.core.crypto import Ed25519KeyManager
 
         pubkey_hex = override_public_key_hex or self.signer_public_key
-        data       = self.canonical_bytes_for_signing()
 
-        return Ed25519KeyManager.verify_detached(data, self.signature, pubkey_hex)
+        # Step 1 — strict encoding check before cryptographic verification
+        try:
+            Ed25519KeyManager._decode_strict_base64url_signature(self.signature)
+        except ValueError:
+            return False, "encoding"
+
+        # Step 2 — cryptographic verification
+        data = self.canonical_bytes_for_signing()
+        ok   = Ed25519KeyManager.verify_detached(data, self.signature, pubkey_hex)
+        return (True, "") if ok else (False, "mismatch")
 
     def verify_chain(
         self, prev: Optional["ExecutionEnvelope"]
