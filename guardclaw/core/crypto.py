@@ -15,9 +15,21 @@ CRITICAL:
     public_key_hex is a @property. Access as key.public_key_hex, NOT key.public_key_hex().
     models.py verify_signature() MUST call Ed25519KeyManager.verify_detached(), not verify().
     verify() requires a key manager instance. verify_detached() requires only a hex string.
+
+SECURITY NOTE:
+    Verification now enforces canonical base64url for detached signatures:
+    - URL-safe alphabet only: A-Z a-z 0-9 _ -
+    - No '+' '/' or '=' characters
+    - Decoded signature must be exactly 64 bytes (Ed25519 raw signature)
+    - Re-encoding must round-trip to the exact same unpadded base64url string
+
+    This prevents permissive decoder behavior from accepting non-canonical
+    encodings such as '-' → '+' substitutions.
 """
 
 import base64
+import binascii
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -50,9 +62,11 @@ class Ed25519KeyManager:
         key.private_bytes_raw()                 → raw 32-byte seed
     """
 
+    _B64URL_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
     def __init__(self, private_key: Ed25519PrivateKey) -> None:
-        self._private_key:    Ed25519PrivateKey = private_key
-        self._public_key:     Ed25519PublicKey  = private_key.public_key()
+        self._private_key: Ed25519PrivateKey = private_key
+        self._public_key: Ed25519PublicKey = private_key.public_key()
         # Pre-compute and cache — never recomputed on each access
         self._public_key_hex: str = (
             self._public_key
@@ -136,12 +150,60 @@ class Ed25519KeyManager:
         raw_sig = self._private_key.sign(data)
         return base64.urlsafe_b64encode(raw_sig).rstrip(b"=").decode("ascii")
 
+    # ── Strict base64url decoding ─────────────────────────────
+
+    @staticmethod
+    def _decode_strict_base64url_signature(signature_b64: str) -> bytes:
+        """
+        Decode a detached signature using STRICT canonical base64url rules.
+
+        Rules enforced:
+            - signature_b64 must be a non-empty str
+            - only URL-safe alphabet characters are allowed: A-Z a-z 0-9 _ -
+            - '+' '/' '=' are rejected
+            - decoded output must be exactly 64 bytes
+            - re-encoding to unpadded base64url must match the original input exactly
+
+        Returns:
+            Raw 64-byte Ed25519 signature.
+
+        Raises:
+            ValueError on any invalid encoding condition.
+        """
+        if not isinstance(signature_b64, str) or not signature_b64:
+            raise ValueError("signature must be a non-empty string")
+
+        if not Ed25519KeyManager._B64URL_RE.fullmatch(signature_b64):
+            raise ValueError("signature is not canonical base64url")
+
+        padded = signature_b64 + "=" * ((4 - len(signature_b64) % 4) % 4)
+
+        try:
+            raw_sig = base64.urlsafe_b64decode(padded.encode("ascii"))
+        except (binascii.Error, ValueError, UnicodeEncodeError) as exc:
+            raise ValueError("signature base64url decode failed") from exc
+
+        if len(raw_sig) != 64:
+            raise ValueError(
+                f"signature must decode to exactly 64 bytes, got {len(raw_sig)}"
+            )
+
+        canonical = (
+            base64.urlsafe_b64encode(raw_sig)
+            .decode("ascii")
+            .rstrip("=")
+        )
+        if canonical != signature_b64:
+            raise ValueError("signature is not canonical base64url")
+
+        return raw_sig
+
     # ── Verification — INSTANCE ───────────────────────────────
 
     def verify(
         self,
-        data:           bytes,
-        signature_b64:  str,
+        data: bytes,
+        signature_b64: str,
         public_key_hex: Optional[str] = None,
     ) -> bool:
         """
@@ -149,8 +211,8 @@ class Ed25519KeyManager:
         (or an explicit override).
 
         Args:
-            data:           Raw bytes that were signed.
-            signature_b64:  base64url signature (with or without padding).
+            data: Raw bytes that were signed.
+            signature_b64: canonical base64url signature string, no padding.
             public_key_hex: 64-char hex override. Defaults to own public key.
 
         Returns:
@@ -167,8 +229,8 @@ class Ed25519KeyManager:
 
     @staticmethod
     def verify_detached(
-        data:           bytes,
-        signature_b64:  str,
+        data: bytes,
+        signature_b64: str,
         public_key_hex: str,
     ) -> bool:
         """
@@ -178,8 +240,8 @@ class Ed25519KeyManager:
         This is the method ExecutionEnvelope.verify_signature() MUST call.
 
         Args:
-            data:           Raw bytes that were signed (canonical bytes).
-            signature_b64:  base64url signature string (with or without padding).
+            data: Raw bytes that were signed (canonical bytes).
+            signature_b64: canonical base64url signature string, no padding.
             public_key_hex: 64-char lowercase hex string of the signer's public key.
 
         Returns:
@@ -189,6 +251,7 @@ class Ed25519KeyManager:
 
         GEF enforcement:
             - public_key_hex must be exactly 64 hex chars (32 bytes)
+            - signature_b64 must be canonical base64url
             - signature_b64 must decode to exactly 64 bytes
             - Verification uses Ed25519 raw (not prehashed)
         """
@@ -196,16 +259,15 @@ class Ed25519KeyManager:
             if not isinstance(public_key_hex, str) or len(public_key_hex) != 64:
                 return False
 
-            raw_pub = bytes.fromhex(public_key_hex)
-            pub     = Ed25519PublicKey.from_public_bytes(raw_pub)
-
-            # Re-add base64url padding if stripped
-            padding    = 4 - len(signature_b64) % 4
-            padded_sig = signature_b64 + "=" * (padding % 4)
-            raw_sig    = base64.urlsafe_b64decode(padded_sig)
-
-            if len(raw_sig) != 64:
+            if public_key_hex.lower() != public_key_hex:
                 return False
+
+            raw_pub = bytes.fromhex(public_key_hex)
+            if len(raw_pub) != 32:
+                return False
+
+            pub = Ed25519PublicKey.from_public_bytes(raw_pub)
+            raw_sig = Ed25519KeyManager._decode_strict_base64url_signature(signature_b64)
 
             pub.verify(raw_sig, data)
             return True
@@ -225,9 +287,9 @@ class Ed25519KeyManager:
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             pem = self._private_key.private_bytes(
-                encoding=             Encoding.PEM,
-                format=               PrivateFormat.PKCS8,
-                encryption_algorithm= NoEncryption(),
+                encoding=Encoding.PEM,
+                format=PrivateFormat.PKCS8,
+                encryption_algorithm=NoEncryption(),
             )
             path.write_bytes(pem)
         except Exception as exc:
@@ -241,9 +303,9 @@ class Ed25519KeyManager:
         Use only for secure backup — never log or transmit.
         """
         return self._private_key.private_bytes(
-            encoding=             Encoding.Raw,
-            format=               PrivateFormat.Raw,
-            encryption_algorithm= NoEncryption(),
+            encoding=Encoding.Raw,
+            format=PrivateFormat.Raw,
+            encryption_algorithm=NoEncryption(),
         )
 
     def __repr__(self) -> str:

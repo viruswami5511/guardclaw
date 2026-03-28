@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "guardclaw"
-version = "0.6.0"
+version = "0.6.1"
 description = "Cryptographic evidence ledger for autonomous agent accountability"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -72,3 +72,4 @@ markers = [
     "hard: marks tests as hard/stress tests",
     "medium: marks tests as medium priority",
 ]
+

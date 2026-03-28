@@ -8,7 +8,7 @@
 **DOI:** https://zenodo.org/records/18712808  
 **Published:** 2026-02-20  
 **Archived:** https://web.archive.org/web/20260220125746/https://github.com/viruswami5511/guardclaw/blob/master/docs/replay-bound-evidence-v1.0.md 
-**Reference implementation:** GuardClaw v0.6.0 — [GEF-SPEC-1.0](https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md)
+**Reference implementation:** GuardClaw v0.6.1 — [GEF-SPEC-1.0](https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md)
 
 ---
 
@@ -58,7 +58,7 @@ Replay-Bound Evidence can be understood as a \*\*flight recorder for autonomous 
 
 
 
-A reference implementation exists as the **GuardClaw open-source project**. The current reference implementation is v0.6.0.
+A reference implementation exists as the **GuardClaw open-source project**. The current reference implementation is v0.6.1.
 
 
 
@@ -951,7 +951,7 @@ Replay-Bound Evidence guarantees cryptographic intent, not ground truth.
 
 
 
-**GuardClaw v0.6.0** implements Level 3 (Chained Integrity) of the
+**GuardClaw v0.6.1** implements Level 3 (Chained Integrity) of the
 Evidence Maturity Model, which includes all Level 2 properties plus:
 
 **Level 2 (Replay-Bound Evidence):**
@@ -960,7 +960,7 @@ Evidence Maturity Model, which includes all Level 2 properties plus:
 - Canonical JSON serialization (RFC 8785 JCS)
 - Offline CLI verification
 
-**Level 3 (Chained Integrity) — added in v0.6.0:**
+**Level 3 (Chained Integrity) — added in v0.6.1:**
 - SHA-256 causal hash chaining (every entry linked to predecessor)
 - Sequence gap detection
 - Insertion and deletion detection
