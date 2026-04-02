@@ -1,11 +1,7 @@
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "guardclaw"
-version = "0.6.1"
-description = "Cryptographic evidence ledger for autonomous agent accountability"
+version = "0.6.5"
+description = "Cryptographic execution evidence for AI agents. Ed25519-signed, SHA-256 chain-hashed, offline-verifiable — prove what your agent did."
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "Apache-2.0"}
@@ -13,9 +9,18 @@ authors = [
     { name = "Viru Swami", email = "viruswami5511@gmail.com" }
 ]
 keywords = [
-    "ai", "agents", "cryptography", "audit",
-    "ledger", "accountability", "replay-protection",
-    "verification", "gef", "evidence-format"
+    "ai agents",
+    "execution integrity",
+    "cryptographic audit log",
+    "tamper evident",
+    "ed25519",
+    "gef protocol",
+    "langchain",
+    "crewai",
+    "ai security",
+    "audit trail",
+    "accountability",
+    "verification",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -50,6 +55,8 @@ dev = [
 Repository = "https://github.com/viruswami5511/guardclaw"
 Homepage = "https://github.com/viruswami5511/guardclaw"
 Documentation = "https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md"
+"Bug Tracker" = "https://github.com/viruswami5511/guardclaw/issues"
+Changelog = "https://github.com/viruswami5511/guardclaw/releases"
 
 [project.scripts]
 guardclaw = "guardclaw.cli:cli"
@@ -58,6 +65,9 @@ guardclaw = "guardclaw.cli:cli"
 where = ["."]
 include = ["guardclaw*"]
 exclude = ["tests*", "examples*", "docs*"]
+
+[project.entry-points."pytest11"]
+guardclaw = "guardclaw.pytest_plugin"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

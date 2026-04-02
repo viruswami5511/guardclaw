@@ -1,29 +1,31 @@
 """
-guardclaw/core/replay.py
+guardclaw/core/replay.py  —  GEF Replay Engine v0.7.2
 
-GEF Replay Engine - v0.3.1
-Aligned to: GEF-SPEC-v1.0
+CHANGES IN v0.7.2:
+    FIX A  Genesis → CHAIN_VIOLATION (not LEDGER_INVALID)
+           Reason: genesis check is runtime (after parse+schema+sig), not pre-flight
+    FIX B  total_entries = entry_count (non-empty lines), not line_count
+           Semantics: failure_sequence=line_num (physical truth), total_entries=real entries
 
-Protocol Laws enforced here:
-    1. Load    -> ExecutionEnvelope.from_dict(line)  -- no other deserialization
-    2. Schema  -> env.validate_schema()              -- fail fast, no silent pass
-    3. Chain   -> env.verify_chain(prev)             -- sequential (causal dependency)
-    4. Sig     -> env.verify_signature()             -- parallel (independent per entry)
-    5. Version -> all envelopes must share gef_version (GEFVersionError if not)
-    6. Nonce   -> no two envelopes in a ledger may share a nonce (INV-29)
-    7. Order   -> file position order must match sequence order (v0.2.1)
-    8. Agent   -> all envelopes in one ledger must share the same agent_id (v0.2.1)
+FIELD SEMANTICS (locked):
+    failure_sequence  = line_num   (0-indexed physical file line, truth source)
+    total_entries     = entry_count (non-empty ledger entries processed)
+    verified_count    = trusted prefix (entries that passed all checks)
 
-Performance architecture -- THREE MODES:
-    Mode 1 -- verify()             O(N) memory, parallel sigs
-    Mode 2 -- stream_verify()      O(1) memory, line-by-line, no file load
-    Mode 3 -- stream_verify_fast() O(1) memory + checkpoint resume
-
-CHANGE LOG:
-    v0.3.1 -- Distinguish invalid_signature_encoding vs invalid_signature
-              in all three verification paths. Requires models.verify_signature()
-              to return (bool, str).
+VERIFICATION ORDER per line (LOCKED):
+    1. JSON decode
+    2. Schema (from_dict + validate_schema)
+    3. Signature presence
+    4. Signature encoding (base64url)
+    5. Signature crypto (Ed25519)
+    6. Genesis check (first entry only — CHAIN rule, not pre-flight)
+    7. Sequence continuity
+    8. GEF version consistency
+    9. Causal hash
+   10. Nonce uniqueness
 """
+
+from __future__ import annotations
 
 import json
 import os
@@ -34,29 +36,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from guardclaw.core.failure import (
+    FailureDetail, FailureType, VerificationSummary,
+    ProtocolInvariantError, compute_boundary_hash, first_schema_error,
+)
 from guardclaw.core.models import (
-    ExecutionEnvelope,
-    GEFVersionError,
-    GEF_VERSION,
-    SchemaValidationResult,
+    ExecutionEnvelope, GEFVersionError, GEF_VERSION,
+    RecordType, SchemaValidationResult,
 )
 
 
-# -----------------------------------------------------------------
-# Module-level worker -- MUST be top-level for ProcessPoolExecutor
-# -----------------------------------------------------------------
+# ── Module-level worker for ProcessPoolExecutor ───────────────────────────────
 
 def _verify_sig_batch(
     batch: List[Tuple[Dict[str, Any], Optional[str], str, int]]
 ) -> List[Tuple[int, bool, str]]:
-    """
-    Verify a batch of envelope signatures in a subprocess.
-    Returns list of (sequence, ok, reason).
-        reason: "" = valid, "encoding" = bad base64url, "mismatch" = bad bytes
-    """
     from guardclaw.core.canonical import canonical_json_encode
     from guardclaw.core.crypto import Ed25519KeyManager
-
     results: List[Tuple[int, bool, str]] = []
     for signing_dict, signature, pubkey_hex, sequence in batch:
         if not signature:
@@ -73,44 +69,12 @@ def _verify_sig_batch(
     return results
 
 
-# -----------------------------------------------------------------
-# Internal helper
-# -----------------------------------------------------------------
-
-def _sig_violation(env: "ExecutionEnvelope", reason: str) -> "ChainViolation":
-    if reason == "encoding":
-        return ChainViolation(
-            at_sequence=env.sequence,
-            record_id=env.record_id,
-            violation_type="invalid_signature_encoding",
-            detail=(
-                "Signature encoding invalid -- non-canonical base64url "
-                "(signer: " + env.signer_public_key[:16] + "...)"
-            ),
-        )
-    return ChainViolation(
-        at_sequence=env.sequence,
-        record_id=env.record_id,
-        violation_type="invalid_signature",
-        detail=(
-            "Signature bytes invalid "
-            "(signer: " + env.signer_public_key[:16] + "...)"
-        ),
-    )
-
-
-# -----------------------------------------------------------------
-# Tuning constants
-# -----------------------------------------------------------------
-
 _PARALLEL_THRESHOLD               = 2_000
 _BATCH_SIZE_PER_WORKER_MULTIPLIER = 4
 _STREAM_PROGRESS_INTERVAL         = 100_000
 
 
-# -----------------------------------------------------------------
-# Result / Summary Types
-# -----------------------------------------------------------------
+# ── Legacy result types (preserved for backward compat) ──────────────────────
 
 @dataclass
 class ChainViolation:
@@ -134,29 +98,14 @@ class ReplaySummary:
     last_timestamp:     Optional[str]
 
 
-# -----------------------------------------------------------------
-# Replay Engine
-# -----------------------------------------------------------------
+# ── Replay Engine ─────────────────────────────────────────────────────────────
 
 class ReplayEngine:
-    """
-    GEF-native replay engine -- streaming, parallel, checkpoint-aware.
 
-    Usage (full load + verify):
-        engine = ReplayEngine()
-        engine.load(Path("ledger.jsonl"))
-        summary = engine.verify()
-
-    Usage (O(1) streaming):
-        engine = ReplayEngine(silent=True)
-        summary = engine.stream_verify(Path("ledger.jsonl"))
-
-    Usage (checkpoint resume):
-        engine = ReplayEngine(silent=True)
-        summary = engine.stream_verify_fast(Path("ledger.jsonl"), key_hex)
-    """
-
-    def __init__(self, parallel: bool = True, silent: bool = False):
+    def __init__(self, mode: str = "strict", parallel: bool = True, silent: bool = False):
+        if mode not in ("strict", "recovery"):
+            raise ValueError(f"mode must be 'strict' or 'recovery', got {mode!r}")
+        self.mode           = mode
         self.envelopes:     List[ExecutionEnvelope]    = []
         self.violations:    List[ChainViolation]       = []
         self._ledger_path:  Optional[Path]             = None
@@ -164,7 +113,290 @@ class ReplayEngine:
         self._silent:       bool                       = silent
         self._out_of_order: List[Tuple[int, int, str]] = []
 
-    # -- Load ----------------------------------------------------------
+    # ── PRIMARY API ───────────────────────────────────────────────────────────
+
+    def stream_verify(self, ledger_path: Path) -> VerificationSummary:
+        """O(1) memory streaming verify. Returns VerificationSummary."""
+        ledger_path = Path(ledger_path)
+        is_recovery = (self.mode == "recovery")
+
+        if not ledger_path.exists():
+            return VerificationSummary(
+                total_entries=0, chain_valid=False,
+                recovery_mode_active=is_recovery,
+                failure_type=FailureType.LEDGER_INVALID,
+                failure_detail=FailureDetail.FILE_NOT_FOUND,
+            )
+        if ledger_path.stat().st_size == 0:
+            return VerificationSummary(
+                total_entries=0, chain_valid=False,
+                recovery_mode_active=is_recovery,
+                failure_type=FailureType.LEDGER_INVALID,
+                failure_detail=FailureDetail.EMPTY_LEDGER,
+            )
+
+        if self.mode == "strict":
+            return self._stream_verify_strict(ledger_path)
+        return self._stream_verify_recovery(ledger_path)
+
+    # ── STRICT MODE ───────────────────────────────────────────────────────────
+
+    def _stream_verify_strict(self, ledger_path: Path) -> VerificationSummary:
+        prev:        Optional[ExecutionEnvelope] = None
+        gef_version: Optional[str]               = None
+        seen_nonces: Set[str]                    = set()
+        verified      = 0
+        entry_count   = 0   # FIX B: non-empty entries processed
+        line_count    = 0   # internal: physical lines (for failure_sequence only)
+        expected_seq  = 0
+
+        with open(ledger_path, "r", encoding="utf-8") as f:
+            for line_num, raw in enumerate(f):
+                raw = raw.strip()
+                if not raw:
+                    continue
+
+                entry_count += 1              # FIX B: count only real entries
+                line_count = line_num + 1     # keep for failure_sequence correctness
+
+                # Step 1: JSON
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    return VerificationSummary(
+                        total_entries=entry_count, chain_valid=False,
+                        failure_sequence=line_num,
+                        failure_type=FailureType.MALFORMED_JSON,
+                        failure_detail=f"{FailureDetail.JSON_DECODE_ERROR}: {exc}",
+                    )
+
+                # Step 2: Schema
+                try:
+                    env = ExecutionEnvelope.from_dict(data)
+                except KeyError as exc:
+                    field = str(exc).strip("'\"")
+                    return VerificationSummary(
+                        total_entries=entry_count, chain_valid=False,
+                        failure_sequence=line_num,
+                        failure_type=FailureType.SCHEMA_VIOLATION,
+                        failure_detail=FailureDetail.missing_field(field),
+                    )
+                schema = env.validate_schema()
+                if not schema:
+                    return VerificationSummary(
+                        total_entries=entry_count, chain_valid=False,
+                        failure_sequence=line_num,
+                        failure_type=FailureType.SCHEMA_VIOLATION,
+                        failure_detail=first_schema_error(schema.errors),
+                    )
+
+                # Step 3: Signature presence
+                if not env.signature:
+                    return VerificationSummary(
+                        total_entries=entry_count, chain_valid=False,
+                        failure_sequence=line_num,
+                        failure_type=FailureType.SCHEMA_VIOLATION,
+                        failure_detail=FailureDetail.MISSING_SIGNATURE,
+                    )
+
+                # Steps 4+5: Encoding + crypto
+                sig_ok, sig_reason = env.verify_signature()
+                if not sig_ok:
+                    return VerificationSummary(
+                        total_entries=entry_count, chain_valid=False,
+                        failure_sequence=line_num,
+                        failure_type=(
+                            FailureType.SIGNATURE_ENCODING_INVALID
+                            if sig_reason == "encoding"
+                            else FailureType.SIGNATURE_INVALID
+                        ),
+                        failure_detail=(
+                            FailureDetail.INVALID_BASE64URL
+                            if sig_reason == "encoding"
+                            else FailureDetail.ED25519_FAILED
+                        ),
+                    )
+
+                # Step 6: Genesis enforcement — CHAIN_VIOLATION (runtime, not pre-flight)
+                if verified == 0 and env.record_type != RecordType.GENESIS:
+                    return VerificationSummary(
+                        total_entries=entry_count,
+                        chain_valid=False,
+                        failure_sequence=line_num,
+                        failure_type=FailureType.CHAIN_VIOLATION,   # FIX A
+                        failure_detail=FailureDetail.GENESIS_MISSING,
+                    )
+
+                # Step 7: Sequence
+                if env.sequence != expected_seq:
+                    return VerificationSummary(
+                        total_entries=entry_count, chain_valid=False,
+                        failure_sequence=line_num,
+                        failure_type=FailureType.CHAIN_VIOLATION,
+                        failure_detail=(
+                            f"{FailureDetail.SEQUENCE_GAP}: "
+                            f"expected {expected_seq}, got {env.sequence}"
+                        ),
+                    )
+
+                # Step 8: GEF version
+                if gef_version is None:
+                    gef_version = env.gef_version
+                elif env.gef_version != gef_version:
+                    return VerificationSummary(
+                        total_entries=entry_count, chain_valid=False,
+                        failure_sequence=line_num,
+                        failure_type=FailureType.CHAIN_VIOLATION,
+                        failure_detail=(
+                            f"{FailureDetail.GEF_VERSION_MISMATCH}: "
+                            f"ledger={gef_version}, entry={env.gef_version}"
+                        ),
+                    )
+
+                # Step 9: Causal hash
+                if not env.verify_chain(prev):
+                    expected_hash = env.expected_causal_hash_from(prev)
+                    return VerificationSummary(
+                        total_entries=entry_count, chain_valid=False,
+                        failure_sequence=line_num,
+                        failure_type=FailureType.CHAIN_VIOLATION,
+                        failure_detail=(
+                            f"{FailureDetail.CAUSAL_HASH_MISMATCH}: "
+                            f"expected ...{expected_hash[-12:]}, "
+                            f"got ...{env.causal_hash[-12:]}"
+                        ),
+                    )
+
+                # Step 10: Nonce uniqueness
+                if env.nonce in seen_nonces:
+                    return VerificationSummary(
+                        total_entries=entry_count, chain_valid=False,
+                        failure_sequence=line_num,
+                        failure_type=FailureType.CHAIN_VIOLATION,
+                        failure_detail=(
+                            f"{FailureDetail.DUPLICATE_NONCE}: "
+                            f"nonce={env.nonce[:16]}... (INV-29)"
+                        ),
+                    )
+                seen_nonces.add(env.nonce)
+
+                prev = env
+                verified     += 1
+                expected_seq += 1
+
+        return VerificationSummary(
+            total_entries=entry_count,   # FIX B
+            chain_valid=True,
+        )
+
+    # ── RECOVERY MODE ─────────────────────────────────────────────────────────
+
+    def _stream_verify_recovery(self, ledger_path: Path) -> VerificationSummary:
+        prev:        Optional[ExecutionEnvelope] = None
+        last_valid:  Optional[ExecutionEnvelope] = None
+        gef_version: Optional[str]               = None
+        seen_nonces: Set[str]                    = set()
+        verified      = 0
+        entry_count   = 0   # FIX B: non-empty entries processed
+        line_count    = 0   # internal: physical lines
+        expected_seq  = 0
+
+        def _fail(line_num, ftype, fdetail):
+            bh = compute_boundary_hash(last_valid) if last_valid else None
+            return VerificationSummary(
+                total_entries=entry_count,      # FIX B
+                chain_valid=False,
+                recovery_mode_active=True,
+                partial_integrity=(verified > 0),
+                verified_count=verified,
+                failure_sequence=line_num,
+                failure_type=ftype,
+                failure_detail=fdetail,
+                integrity_boundary_hash=bh,
+                boundary_sequence=last_valid.sequence if last_valid else None,
+            )
+
+        with open(ledger_path, "r", encoding="utf-8") as f:
+            for line_num, raw in enumerate(f):
+                raw = raw.strip()
+                if not raw:
+                    continue
+
+                entry_count += 1              # FIX B
+                line_count = line_num + 1     # keep for internal tracking
+
+                try:
+                    data = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    return _fail(line_num, FailureType.MALFORMED_JSON,
+                                 f"{FailureDetail.JSON_DECODE_ERROR}: {exc}")
+
+                try:
+                    env = ExecutionEnvelope.from_dict(data)
+                except KeyError as exc:
+                    field = str(exc).strip("'\"")
+                    return _fail(line_num, FailureType.SCHEMA_VIOLATION,
+                                 FailureDetail.missing_field(field))
+
+                schema = env.validate_schema()
+                if not schema:
+                    return _fail(line_num, FailureType.SCHEMA_VIOLATION,
+                                 first_schema_error(schema.errors))
+
+                if not env.signature:
+                    return _fail(line_num, FailureType.SCHEMA_VIOLATION,
+                                 FailureDetail.MISSING_SIGNATURE)
+
+                sig_ok, sig_reason = env.verify_signature()
+                if not sig_ok:
+                    return _fail(
+                        line_num,
+                        FailureType.SIGNATURE_ENCODING_INVALID if sig_reason == "encoding"
+                        else FailureType.SIGNATURE_INVALID,
+                        FailureDetail.INVALID_BASE64URL if sig_reason == "encoding"
+                        else FailureDetail.ED25519_FAILED,
+                    )
+
+                # Step 6: Genesis enforcement — CHAIN_VIOLATION (runtime, not pre-flight)
+                if verified == 0 and env.record_type != RecordType.GENESIS:
+                    return _fail(line_num, FailureType.CHAIN_VIOLATION,   # FIX A
+                                 FailureDetail.GENESIS_MISSING)
+
+                if env.sequence != expected_seq:
+                    return _fail(line_num, FailureType.CHAIN_VIOLATION,
+                                 f"{FailureDetail.SEQUENCE_GAP}: expected {expected_seq}, got {env.sequence}")
+
+                if gef_version is None:
+                    gef_version = env.gef_version
+                elif env.gef_version != gef_version:
+                    return _fail(line_num, FailureType.CHAIN_VIOLATION,
+                                 f"{FailureDetail.GEF_VERSION_MISMATCH}: ledger={gef_version}, entry={env.gef_version}")
+
+                if not env.verify_chain(prev):
+                    expected_hash = env.expected_causal_hash_from(prev)
+                    return _fail(line_num, FailureType.CHAIN_VIOLATION,
+                                 f"{FailureDetail.CAUSAL_HASH_MISMATCH}: "
+                                 f"expected ...{expected_hash[-12:]}, got ...{env.causal_hash[-12:]}")
+
+                if env.nonce in seen_nonces:
+                    return _fail(line_num, FailureType.CHAIN_VIOLATION,
+                                 f"{FailureDetail.DUPLICATE_NONCE}: nonce={env.nonce[:16]}... (INV-29)")
+                seen_nonces.add(env.nonce)
+
+                last_valid = env
+                prev = env
+                verified     += 1
+                expected_seq += 1
+
+        return VerificationSummary(
+            total_entries=entry_count,   # FIX B
+            chain_valid=True,
+            recovery_mode_active=True,
+            partial_integrity=False,
+            verified_count=verified,
+        )
+
+    # ── LEGACY: load() + verify() ─────────────────────────────────────────────
 
     def load(self, ledger_path: Path) -> None:
         ledger_path       = Path(ledger_path)
@@ -183,103 +415,72 @@ class ReplayEngine:
                     continue
                 try:
                     data = json.loads(raw)
-                except json.JSONDecodeError as e:
-                    raise ValueError(
-                        f"Malformed JSON at ledger line {line_num}: {e}"
-                    ) from e
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Malformed JSON at line {line_num}: {exc}") from exc
                 try:
                     env = ExecutionEnvelope.from_dict(data)
-                except KeyError as e:
-                    raise ValueError(
-                        f"Missing required GEF field at line {line_num}: {e}"
-                    ) from e
+                except KeyError as exc:
+                    raise ValueError(f"Missing GEF field at line {line_num}: {exc}") from exc
                 schema = env.validate_schema()
                 if not schema:
                     raise ValueError(
-                        f"GEF schema violation at line {line_num} "
-                        f"(record_id={data.get('record_id', '?')}): "
-                        f"{schema.errors}"
+                        f"Schema violation at line {line_num} "
+                        f"(record_id={data.get('record_id','?')}): {schema.errors}"
                     )
                 self.envelopes.append(env)
 
         self._out_of_order = [
-            (file_pos, env.sequence, env.record_id)
-            for file_pos, env in enumerate(self.envelopes)
-            if env.sequence != file_pos
+            (fp, env.sequence, env.record_id)
+            for fp, env in enumerate(self.envelopes)
+            if env.sequence != fp
         ]
-
         self.envelopes.sort(key=lambda e: e.sequence)
 
         if self.envelopes:
             versions = {e.gef_version for e in self.envelopes}
             if len(versions) > 1:
                 raise GEFVersionError(
-                    f"Ledger '{ledger_path.name}' contains mixed gef_version "
-                    f"values: {sorted(versions)}. All envelopes in a single "
-                    f"ledger must share identical gef_version."
+                    f"Mixed gef_version in '{ledger_path.name}': {sorted(versions)}"
                 )
 
         if not self._silent:
-            print(
-                f"Loaded {len(self.envelopes):,} GEF envelopes "
-                f"from '{ledger_path.name}'"
-            )
-
-    # -- Verify --------------------------------------------------------
+            print(f"Loaded {len(self.envelopes):,} GEF envelopes from '{ledger_path.name}'")
 
     def verify(self) -> ReplaySummary:
         self.violations = []
-
         if not self.envelopes:
             return self._empty_summary()
 
         chain_violations: List[ChainViolation] = []
-        seen_nonces:      Set[str]             = set()
+        seen_nonces: Set[str] = set()
 
-        for file_pos, actual_seq, rec_id in self._out_of_order:
+        for fp, actual_seq, rec_id in self._out_of_order:
             chain_violations.append(ChainViolation(
-                at_sequence=actual_seq,
-                record_id=rec_id,
+                at_sequence=actual_seq, record_id=rec_id,
                 violation_type="sequence_order",
-                detail=(
-                    f"File position {file_pos} has sequence {actual_seq} -- "
-                    f"entry reorder detected."
-                ),
+                detail=f"File position {fp} has sequence {actual_seq} -- reorder detected.",
             ))
 
         for i, env in enumerate(self.envelopes):
             prev = self.envelopes[i - 1] if i > 0 else None
-
             if not env.verify_sequence(i):
                 chain_violations.append(ChainViolation(
-                    at_sequence=i,
-                    record_id=env.record_id,
+                    at_sequence=i, record_id=env.record_id,
                     violation_type="sequence_gap",
                     detail=f"Expected sequence {i}, got {env.sequence}",
                 ))
-
             if not env.verify_chain(prev):
                 expected = env.expected_causal_hash_from(prev)
                 chain_violations.append(ChainViolation(
-                    at_sequence=env.sequence,
-                    record_id=env.record_id,
+                    at_sequence=env.sequence, record_id=env.record_id,
                     violation_type="chain_break",
-                    detail=(
-                        f"causal_hash mismatch: "
-                        f"expected ...{expected[-12:]}, "
-                        f"got ...{env.causal_hash[-12:]}"
-                    ),
+                    detail=f"causal_hash mismatch: expected ...{expected[-12:]}, got ...{env.causal_hash[-12:]}",
                 ))
-
             if env.nonce in seen_nonces:
                 chain_violations.append(ChainViolation(
-                    at_sequence=env.sequence,
-                    record_id=env.record_id,
+                    at_sequence=env.sequence, record_id=env.record_id,
                     violation_type="schema",
-                    detail=(
-                        f"Duplicate nonce '{env.nonce}' at sequence "
-                        f"{env.sequence} (INV-29)"
-                    ),
+                    detail=f"Duplicate nonce '{env.nonce}' at seq {env.sequence} (INV-29)",
                 ))
             seen_nonces.add(env.nonce)
 
@@ -288,39 +489,38 @@ class ReplayEngine:
             for env in self.envelopes[1:]:
                 if env.agent_id != expected_agent:
                     chain_violations.append(ChainViolation(
-                        at_sequence=env.sequence,
-                        record_id=env.record_id,
+                        at_sequence=env.sequence, record_id=env.record_id,
                         violation_type="mixed_agent_id",
-                        detail=(
-                            f"agent_id changed from '{expected_agent}' to "
-                            f"'{env.agent_id}' at sequence {env.sequence}."
-                        ),
+                        detail=f"agent_id changed from '{expected_agent}' to '{env.agent_id}' at seq {env.sequence}.",
                     ))
                     break
 
-        use_parallel = (
-            self._parallel and len(self.envelopes) >= _PARALLEL_THRESHOLD
-        )
+        use_parallel = self._parallel and len(self.envelopes) >= _PARALLEL_THRESHOLD
         sig_results = (
-            self._verify_signatures_parallel()
-            if use_parallel
+            self._verify_signatures_parallel() if use_parallel
             else self._verify_signatures_sequential()
         )
 
         sig_violations: List[ChainViolation] = []
-        valid_sigs   = 0
+        valid_sigs = 0
         invalid_sigs = 0
-
         for env in self.envelopes:
             ok, reason = sig_results.get(env.sequence, (False, "mismatch"))
             if ok:
                 valid_sigs += 1
             else:
                 invalid_sigs += 1
-                sig_violations.append(_sig_violation(env, reason))
+                vtype = "invalid_signature_encoding" if reason == "encoding" else "invalid_signature"
+                sig_violations.append(ChainViolation(
+                    at_sequence=env.sequence, record_id=env.record_id,
+                    violation_type=vtype,
+                    detail=(
+                        "Signature encoding invalid -- non-canonical base64url "
+                        if reason == "encoding" else "Signature bytes invalid "
+                    ) + f"(signer: {env.signer_public_key[:16]}...)",
+                ))
 
         self.violations = chain_violations + sig_violations
-
         counts: Dict[str, int] = defaultdict(int)
         for env in self.envelopes:
             counts[env.record_type] += 1
@@ -338,26 +538,22 @@ class ReplayEngine:
             last_timestamp=self.envelopes[-1].timestamp,
         )
 
-    # -- Stream Verify -------------------------------------------------
+    # ── LEGACY: stream_verify_legacy ─────────────────────────────────────────
 
-    def stream_verify(self, ledger_path: Path) -> ReplaySummary:
+    def stream_verify_legacy(self, ledger_path: Path) -> ReplaySummary:
         ledger_path = Path(ledger_path)
-
         if not ledger_path.exists():
             raise FileNotFoundError(f"GEF ledger not found: {ledger_path}")
 
-        violations:  List[ChainViolation]        = []
-        seen_nonces: Set[str]                    = set()
+        violations: List[ChainViolation] = []
+        seen_nonces: Set[str] = set()
         prev:        Optional[ExecutionEnvelope] = None
-        gef_version: Optional[str]               = None
-        valid_sigs   = 0
-        invalid_sigs = 0
-        total        = 0
-        counts:      Dict[str, int]              = defaultdict(int)
-        agents:      Set[str]                    = set()
-        first_ts:    Optional[str]               = None
-        last_ts:     Optional[str]               = None
-        t_start      = time.time()
+        gef_version: Optional[str] = None
+        valid_sigs = 0; invalid_sigs = 0; total = 0
+        counts: Dict[str, int] = defaultdict(int)
+        agents: Set[str] = set()
+        first_ts: Optional[str] = None; last_ts: Optional[str] = None
+        t_start = time.time()
 
         with open(ledger_path, "r", encoding="utf-8") as f:
             for line_num, raw in enumerate(f, 1):
@@ -369,18 +565,15 @@ class ReplayEngine:
                 except json.JSONDecodeError:
                     violations.append(ChainViolation(
                         at_sequence=total, record_id="?",
-                        violation_type="schema",
-                        detail=f"Malformed JSON at line {line_num}",
+                        violation_type="schema", detail=f"Malformed JSON at line {line_num}",
                     ))
                     continue
                 try:
                     env = ExecutionEnvelope.from_dict(data)
-                except KeyError as e:
+                except KeyError as exc:
                     violations.append(ChainViolation(
-                        at_sequence=total,
-                        record_id=data.get("record_id", "?"),
-                        violation_type="schema",
-                        detail=f"Missing field at line {line_num}: {e}",
+                        at_sequence=total, record_id=data.get("record_id", "?"),
+                        violation_type="schema", detail=f"Missing field at line {line_num}: {exc}",
                     ))
                     continue
 
@@ -405,18 +598,13 @@ class ReplayEngine:
                     violations.append(ChainViolation(
                         at_sequence=env.sequence, record_id=env.record_id,
                         violation_type="chain_break",
-                        detail=(
-                            f"causal_hash mismatch: "
-                            f"expected ...{expected[-12:]}, "
-                            f"got ...{env.causal_hash[-12:]}"
-                        ),
+                        detail=f"causal_hash mismatch: expected ...{expected[-12:]}, got ...{env.causal_hash[-12:]}",
                     ))
 
                 if env.nonce in seen_nonces:
                     violations.append(ChainViolation(
                         at_sequence=env.sequence, record_id=env.record_id,
-                        violation_type="schema",
-                        detail=f"Duplicate nonce '{env.nonce}' (INV-29)",
+                        violation_type="schema", detail=f"Duplicate nonce '{env.nonce}' (INV-29)",
                     ))
                 seen_nonces.add(env.nonce)
 
@@ -425,87 +613,58 @@ class ReplayEngine:
                     valid_sigs += 1
                 else:
                     invalid_sigs += 1
-                    violations.append(_sig_violation(env, sig_reason))
+                    vtype = "invalid_signature_encoding" if sig_reason == "encoding" else "invalid_signature"
+                    violations.append(ChainViolation(
+                        at_sequence=env.sequence, record_id=env.record_id,
+                        violation_type=vtype, detail=f"Signature failed: {sig_reason}",
+                    ))
 
                 counts[env.record_type] += 1
                 agents.add(env.agent_id)
                 if first_ts is None:
                     first_ts = env.timestamp
                 last_ts = env.timestamp
-                total  += 1
-                prev    = env
+                total += 1; prev = env
 
                 if not self._silent and total % _STREAM_PROGRESS_INTERVAL == 0:
                     elapsed = time.time() - t_start
-                    rate = total / elapsed if elapsed > 0 else 0
-                    print(
-                        f"  stream_verify: {total:,} entries "
-                        f"({rate:,.0f} eps) violations: {len(violations)}"
-                    )
+                    print(f"  stream_verify: {total:,} entries ({total/elapsed:,.0f} eps)")
 
         if not self._silent:
             elapsed = time.time() - t_start
-            rate = total / elapsed if elapsed > 0 else 0
-            print(
-                f"stream_verify complete: {total:,} entries "
-                f"in {elapsed:.1f}s ({rate:,.0f} eps) "
-                f"violations: {len(violations)}"
-            )
+            print(f"stream_verify complete: {total:,} in {elapsed:.1f}s violations: {len(violations)}")
 
         return ReplaySummary(
-            total_entries=total,
-            chain_valid=len(violations) == 0,
-            violations=violations,
-            valid_signatures=valid_sigs,
-            invalid_signatures=invalid_sigs,
-            record_type_counts=dict(counts),
-            agents_seen=sorted(agents),
-            gef_version=gef_version,
-            first_timestamp=first_ts,
-            last_timestamp=last_ts,
+            total_entries=total, chain_valid=len(violations) == 0,
+            violations=violations, valid_signatures=valid_sigs,
+            invalid_signatures=invalid_sigs, record_type_counts=dict(counts),
+            agents_seen=sorted(agents), gef_version=gef_version,
+            first_timestamp=first_ts, last_timestamp=last_ts,
         )
 
-    # -- Stream Verify Fast --------------------------------------------
+    # ── LEGACY: stream_verify_fast ────────────────────────────────────────────
 
-    def stream_verify_fast(
-        self,
-        ledger_path: Path,
-        public_key_hex: str,
-    ) -> ReplaySummary:
+    def stream_verify_fast(self, ledger_path: Path, public_key_hex: str) -> ReplaySummary:
         from guardclaw.core.checkpoint import load_latest_checkpoint
-
         ledger_path = Path(ledger_path)
         ckpt_info   = load_latest_checkpoint(ledger_path, public_key_hex)
-
         if not ckpt_info:
             if not self._silent:
-                print("  No valid checkpoint -- falling back to full stream_verify")
-            return self.stream_verify(ledger_path)
+                print("  No checkpoint found -- falling back to stream_verify_legacy")
+            return self.stream_verify_legacy(ledger_path)
 
         ckpt, num_ckpts = ckpt_info
-
         if not self._silent:
-            print(
-                f"  Checkpoint #{num_ckpts} found: "
-                f"seq {ckpt.sequence:,}, offset {ckpt.file_offset:,} bytes"
-            )
-            print(
-                f"  Seeking to offset -- "
-                f"skipping {ckpt.sequence:,} verified entries"
-            )
+            print(f"  Checkpoint #{num_ckpts}: seq {ckpt.sequence:,}, offset {ckpt.file_offset:,} bytes")
 
-        violations:  List[ChainViolation]        = []
-        seen_nonces: Set[str]                    = set()
-        prev:        Optional[ExecutionEnvelope] = None
-        gef_version: Optional[str]               = None
-        valid_sigs   = 0
-        invalid_sigs = 0
-        total        = 0
-        counts:      Dict[str, int]              = defaultdict(int)
-        agents:      Set[str]                    = set()
-        first_ts:    Optional[str]               = None
-        last_ts:     Optional[str]               = None
-        t_start      = time.time()
+        violations: List[ChainViolation] = []
+        seen_nonces: Set[str] = set()
+        prev: Optional[ExecutionEnvelope] = None
+        gef_version: Optional[str] = None
+        valid_sigs = 0; invalid_sigs = 0; total = 0
+        counts: Dict[str, int] = defaultdict(int)
+        agents: Set[str] = set()
+        first_ts: Optional[str] = None; last_ts: Optional[str] = None
 
         with open(ledger_path, "r", encoding="utf-8") as f:
             f.seek(ckpt.file_offset)
@@ -527,17 +686,13 @@ class ReplayEngine:
                     violations.append(ChainViolation(
                         at_sequence=env.sequence, record_id=env.record_id,
                         violation_type="chain_break",
-                        detail=(
-                            f"expected ...{expected[-12:]}, "
-                            f"got ...{env.causal_hash[-12:]}"
-                        ),
+                        detail=f"expected ...{expected[-12:]}, got ...{env.causal_hash[-12:]}",
                     ))
 
                 if env.nonce in seen_nonces:
                     violations.append(ChainViolation(
                         at_sequence=env.sequence, record_id=env.record_id,
-                        violation_type="schema",
-                        detail=f"Duplicate nonce '{env.nonce}' (INV-29)",
+                        violation_type="schema", detail=f"Duplicate nonce '{env.nonce}' (INV-29)",
                     ))
                 seen_nonces.add(env.nonce)
 
@@ -546,31 +701,17 @@ class ReplayEngine:
                     valid_sigs += 1
                 else:
                     invalid_sigs += 1
-                    violations.append(_sig_violation(env, sig_reason))
+                    violations.append(ChainViolation(
+                        at_sequence=env.sequence, record_id=env.record_id,
+                        violation_type="invalid_signature", detail=f"Signature failed: {sig_reason}",
+                    ))
 
                 counts[env.record_type] += 1
                 agents.add(env.agent_id)
                 if first_ts is None:
                     first_ts = env.timestamp
                 last_ts = env.timestamp
-                total  += 1
-                prev    = env
-
-                if not self._silent and total % _STREAM_PROGRESS_INTERVAL == 0:
-                    elapsed = time.time() - t_start
-                    rate = total / elapsed if elapsed > 0 else 0
-                    print(f"  delta verify: {total:,} new entries ({rate:,.0f} eps)")
-
-        if not self._silent:
-            elapsed = time.time() - t_start
-            rate = total / elapsed if elapsed > 0 else 0
-            print(
-                f"stream_verify_fast complete: "
-                f"{total:,} delta + {ckpt.sequence:,} checkpointed "
-                f"= {ckpt.sequence + total:,} total | "
-                f"{elapsed:.2f}s ({rate:,.0f} delta eps) "
-                f"violations: {len(violations)}"
-            )
+                total += 1; prev = env
 
         return ReplaySummary(
             total_entries=ckpt.sequence + total,
@@ -585,29 +726,76 @@ class ReplayEngine:
             last_timestamp=last_ts,
         )
 
-    # -- Parallel Signature Helpers ------------------------------------
+    # ── LEGACY: print_timeline + export_json ─────────────────────────────────
+
+    def print_timeline(self, max_entries: Optional[int] = None) -> None:
+        if not self.envelopes:
+            print("No GEF envelopes loaded."); return
+        summary = self.verify()
+        bar = "=" * 80
+        print(f"\n{bar}\nGuardClaw GEF Replay Timeline\n{bar}")
+        print(f"  Ledger      : {self._ledger_path or 'in-memory'}")
+        print(f"  GEF Version : {summary.gef_version}")
+        print(f"  Entries     : {summary.total_entries:,}")
+        print(f"  Chain       : {'VALID' if summary.chain_valid else 'VIOLATED'}")
+        print(f"  Valid sigs  : {summary.valid_signatures:,}")
+        print(f"  Invalid sigs: {summary.invalid_signatures:,}")
+        print(f"  Agents      : {', '.join(summary.agents_seen)}")
+        print(f"  First entry : {summary.first_timestamp}")
+        print(f"  Last entry  : {summary.last_timestamp}\n")
+        to_show = self.envelopes[:max_entries] if max_entries else self.envelopes
+        for env in to_show:
+            prev      = self.envelopes[env.sequence - 1] if env.sequence > 0 else None
+            sig_ok, _ = env.verify_signature()
+            print(f"  [{env.sequence:04d}] {env.timestamp}  {env.record_type}")
+            print(f"         record_id   : {env.record_id}")
+            print(f"         causal_hash : ...{env.causal_hash[-12:]}")
+            print(f"         sig:{'OK' if sig_ok else 'FAIL'}  chain:{'OK' if env.verify_chain(prev) else 'FAIL'}\n")
+        if max_entries and len(self.envelopes) > max_entries:
+            print(f"  ... and {len(self.envelopes) - max_entries:,} more not shown\n")
+        print("-" * 80)
+        if summary.violations:
+            print(f"{len(summary.violations)} VIOLATION(S):")
+            for v in summary.violations:
+                print(f"  [seq {v.at_sequence:04d}] {v.violation_type.upper():30s} | {v.detail}")
+        else:
+            print("All entries verified -- chain intact, all signatures valid.")
+        print("-" * 80 + "\n")
+
+    def export_json(self, output_path: Path) -> None:
+        if not self.envelopes:
+            raise RuntimeError("No envelopes loaded. Call load() first.")
+        summary     = self.verify()
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        report = {
+            "gef_replay_report": {
+                "version": "1.0", "ledger": str(self._ledger_path or "in-memory"),
+                "total_entries": summary.total_entries, "chain_valid": summary.chain_valid,
+                "valid_signatures": summary.valid_signatures,
+                "invalid_signatures": summary.invalid_signatures,
+                "gef_version": summary.gef_version,
+                "first_timestamp": summary.first_timestamp,
+                "last_timestamp": summary.last_timestamp,
+                "agents_seen": summary.agents_seen,
+                "record_type_counts": summary.record_type_counts,
+                "violations": [
+                    {"at_sequence": v.at_sequence, "record_id": v.record_id,
+                     "violation_type": v.violation_type, "detail": v.detail}
+                    for v in summary.violations
+                ],
+            }
+        }
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+        if not self._silent:
+            print(f"Replay report exported to: {output_path}")
 
     def _verify_signatures_parallel(self) -> Dict[int, Tuple[bool, str]]:
         n_workers  = min(os.cpu_count() or 4, 8)
-        batch_size = max(
-            500,
-            len(self.envelopes) // (
-                n_workers * _BATCH_SIZE_PER_WORKER_MULTIPLIER
-            ),
-        )
-        all_data = [
-            (
-                env.to_signing_dict(),
-                env.signature,
-                env.signer_public_key,
-                env.sequence,
-            )
-            for env in self.envelopes
-        ]
-        batches = [
-            all_data[i: i + batch_size]
-            for i in range(0, len(all_data), batch_size)
-        ]
+        batch_size = max(500, len(self.envelopes) // (n_workers * _BATCH_SIZE_PER_WORKER_MULTIPLIER))
+        all_data   = [(env.to_signing_dict(), env.signature, env.signer_public_key, env.sequence) for env in self.envelopes]
+        batches    = [all_data[i:i+batch_size] for i in range(0, len(all_data), batch_size)]
         results: Dict[int, Tuple[bool, str]] = {}
         try:
             with ProcessPoolExecutor(max_workers=n_workers) as executor:
@@ -619,129 +807,11 @@ class ReplayEngine:
         return results
 
     def _verify_signatures_sequential(self) -> Dict[int, Tuple[bool, str]]:
-        return {
-            env.sequence: env.verify_signature()
-            for env in self.envelopes
-        }
-
-    # -- Print Timeline ------------------------------------------------
-
-    def print_timeline(self, max_entries: Optional[int] = None) -> None:
-        if not self.envelopes:
-            print("No GEF envelopes loaded.")
-            return
-
-        summary = self.verify()
-        bar     = "=" * 80
-
-        print("")
-        print(bar)
-        print("GuardClaw GEF Replay Timeline")
-        print(bar)
-        print(f"  Ledger      : {self._ledger_path or 'in-memory'}")
-        print(f"  GEF Version : {summary.gef_version}")
-        print(f"  Entries     : {summary.total_entries:,}")
-        print(f"  Chain       : {'VALID' if summary.chain_valid else 'VIOLATED'}")
-        print(f"  Valid sigs  : {summary.valid_signatures:,}")
-        print(f"  Invalid sigs: {summary.invalid_signatures:,}")
-        print(f"  Agents      : {', '.join(summary.agents_seen)}")
-        print(f"  First entry : {summary.first_timestamp}")
-        print(f"  Last entry  : {summary.last_timestamp}")
-        print()
-
-        to_show = (
-            self.envelopes[:max_entries] if max_entries else self.envelopes
-        )
-
-        for env in to_show:
-            prev      = self.envelopes[env.sequence - 1] if env.sequence > 0 else None
-            sig_ok, _ = env.verify_signature()
-            sig_icon  = "OK"   if sig_ok              else "FAIL"
-            chn_icon  = "OK"   if env.verify_chain(prev) else "FAIL"
-
-            print(f"  [{env.sequence:04d}] {env.timestamp}  {env.record_type}")
-            print(f"         record_id   : {env.record_id}")
-            print(f"         agent_id    : {env.agent_id}")
-            print(f"         nonce       : {env.nonce[:16]}...")
-            print(f"         causal_hash : ...{env.causal_hash[-12:]}")
-            print(f"         sig:{sig_icon}  chain:{chn_icon}")
-            print()
-
-        if max_entries and len(self.envelopes) > max_entries:
-            print(f"  ... and {len(self.envelopes) - max_entries:,} more entries not shown")
-            print()
-
-        if summary.violations:
-            print("-" * 80)
-            print(f"{len(summary.violations)} VIOLATION(S) DETECTED:")
-            print("-" * 80)
-            for v in summary.violations:
-                print(
-                    f"  [seq {v.at_sequence:04d}] "
-                    f"{v.violation_type.upper():30s} | {v.detail}"
-                )
-            print("-" * 80)
-        else:
-            print("-" * 80)
-            print("All entries verified -- chain intact, all signatures valid.")
-            print("-" * 80)
-        print()
-
-    # -- Export JSON ---------------------------------------------------
-
-    def export_json(self, output_path: Path) -> None:
-        if not self.envelopes:
-            raise RuntimeError(
-                "No envelopes loaded. Call load() before export_json()."
-            )
-
-        summary     = self.verify()
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        report = {
-            "gef_replay_report": {
-                "version":            "1.0",
-                "ledger":             str(self._ledger_path or "in-memory"),
-                "total_entries":      summary.total_entries,
-                "chain_valid":        summary.chain_valid,
-                "valid_signatures":   summary.valid_signatures,
-                "invalid_signatures": summary.invalid_signatures,
-                "gef_version":        summary.gef_version,
-                "first_timestamp":    summary.first_timestamp,
-                "last_timestamp":     summary.last_timestamp,
-                "agents_seen":        summary.agents_seen,
-                "record_type_counts": summary.record_type_counts,
-                "violations": [
-                    {
-                        "at_sequence":    v.at_sequence,
-                        "record_id":      v.record_id,
-                        "violation_type": v.violation_type,
-                        "detail":         v.detail,
-                    }
-                    for v in summary.violations
-                ],
-            }
-        }
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(report, f, indent=2)
-
-        if not self._silent:
-            print(f"Replay report exported to: {output_path}")
-
-    # -- Internal ------------------------------------------------------
+        return {env.sequence: env.verify_signature() for env in self.envelopes}
 
     def _empty_summary(self) -> ReplaySummary:
         return ReplaySummary(
-            total_entries=0,
-            chain_valid=True,
-            violations=[],
-            valid_signatures=0,
-            invalid_signatures=0,
-            record_type_counts={},
-            agents_seen=[],
-            gef_version=None,
-            first_timestamp=None,
-            last_timestamp=None,
+            total_entries=0, chain_valid=True, violations=[], valid_signatures=0,
+            invalid_signatures=0, record_type_counts={}, agents_seen=[],
+            gef_version=None, first_timestamp=None, last_timestamp=None,
         )

@@ -1,0 +1,15 @@
+{
+  "gef_bundle_version": "1.0",
+  "created_at": "2026-03-29T17:53:17.864029+00:00",
+  "agent_id": "phase4-test",
+  "ledger_file": "ledger.gef",
+  "entry_count": 2,
+  "first_entry_at": "2026-03-29T17:53:17.289Z",
+  "last_entry_at": "2026-03-29T17:53:17.299Z",
+  "ledger_sha256": "aeae6e5b7b2918e2a6aa3429a5697c732eb7b102cf4e7484550a7144960adbe2",
+  "ledger_size_bytes": 1485,
+  "chain_head_hash": "04dd762f309a7b43565ad95347f6d7de2d8f6ed14b662e9cb28e073ba2add28e",
+  "chain_head_sequence": 1,
+  "guardclaw_version": "0.6.1",
+  "gef_version": "1.0"
+}

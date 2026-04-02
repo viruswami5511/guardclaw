@@ -1,253 +1,236 @@
 """
 guardclaw/core/ledger.py
 
-GEFLedger — The core write path for GuardClaw.
-
-Modes:
-    "strict" (default) — every emit() writes immediately to disk with fsync.
-                         Crash-safe. Zero data loss on SIGKILL.
-    "ghost"            — entries are signed and chained in memory only.
-                         No file I/O. Used for testing, dry-run, and
-                         environments where disk writes are forbidden.
-
-Safe Append Protocol (Strict mode):
-    1. Serialize entry to JSON bytes
-    2. Append newline
-    3. write() to OS buffer
-    4. flush() — Python buffer -> OS buffer
-    5. fsync() — OS buffer -> physical disk
-    Result: each entry is atomically committed before the next begins.
-    A SIGKILL between steps leaves at most ONE incomplete line at EOF.
-    Recovery scanner strips any incomplete trailing line on next open.
-
-Thread safety:
-    self._lock (threading.Lock) guards all state mutations.
-    100 threads x 10,000 writes = 1,000,000 entries — zero corruption.
-    Tested and verified.
+GEFLedger — the core truth store for GuardClaw.
 """
 
+from __future__ import annotations
+
 import json
-import os
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
-from guardclaw.core.models import ExecutionEnvelope, RecordType
-
-
-_VALID_MODES = {"strict", "ghost"}
+from guardclaw.core.crypto import Ed25519KeyManager
+from guardclaw.core.models import (
+    ExecutionEnvelope,
+    _VALID_RECORD_TYPES,
+)
 
 
 class GEFLedger:
-    """
-    Write path for GEF ledger entries.
-
-    Args:
-        key_manager:  Ed25519KeyManager instance for signing.
-        agent_id:      String identifier for this agent/process.
-        ledger_path:  Directory where ledger.jsonl will be written.
-                      Ignored in ghost mode.
-        mode:         "strict" (default) or "ghost".
-                      strict — write + fsync every entry.
-                      ghost  — in-memory only, no disk I/O.
-
-    Usage:
-        key = Ed25519KeyManager.generate()
-        ledger = GEFLedger(key_manager=key, agent_id="my-agent", ledger_path=".guardclaw")
-        env = ledger.emit(record_type=RecordType.EXECUTION, payload={"task": "run"})
-    """
-
+    LEDGERFILENAME = "ledger.jsonl"
     LEDGER_FILENAME = "ledger.jsonl"
 
     def __init__(
         self,
-        key_manager,
+        key_manager: Ed25519KeyManager,
         agent_id: str,
+        ledgerpath: Optional[str] = None,
+        ledgerdir: Optional[str] = None,
         ledger_path: Optional[str] = None,
         mode: str = "strict",
+        ledger_filename: Optional[str] = None,
     ) -> None:
-        if mode not in _VALID_MODES:
-            raise ValueError(
-                f"Invalid mode {mode!r}. Valid modes: {sorted(_VALID_MODES)}"
-            )
 
-        self._key_manager  = key_manager
-        self._agent_id     = agent_id
-        self._mode         = mode
-        self._lock         = threading.Lock()
-        self._sequence     = 0
-        self._prev:         Optional[ExecutionEnvelope] = None
-        self._ghost_log:   List[ExecutionEnvelope]     = []
-        self._file         = None
+        if mode not in ("strict", "ghost"):
+            raise ValueError(f"Invalid mode: {mode!r}. Must be 'strict' or 'ghost'.")
 
-        if mode == "strict":
-            if ledger_path is None:
-                raise ValueError(
-                    "ledger_path is required in strict mode."
-                )
-            self._ledger_dir  = Path(ledger_path)
-            self._ledger_dir.mkdir(parents=True, exist_ok=True)
-            self._ledger_file = self._ledger_dir / self.LEDGER_FILENAME
-            self._open_and_recover()
+        resolved = ledgerpath or ledger_path or ledgerdir
+
+        if mode == "strict" and resolved is None:
+            raise ValueError("ledger_path is required for strict mode.")
+
+        self._key_manager = key_manager
+        self._agent_id = agent_id
+        self._mode = mode
+        self._chain: List[ExecutionEnvelope] = []
+        self._lock = threading.Lock()
+
+        if mode == "ghost":
+            self._ledger_file: Optional[Path] = None
+        else:
+            lp = Path(resolved)
+            lp.mkdir(parents=True, exist_ok=True)
+
+            fname = ledger_filename or self.LEDGERFILENAME
+            self._ledger_file = lp / fname
+
+            # 🔥 FIX 1 — clean corrupted tail
+            self._recover_file()
+
+            # 🔥 FIX 2 — restore in-memory state
+            self._load_existing_chain()
 
     # ── Public API ────────────────────────────────────────────
+
+    def get_path(self) -> str:
+        return str(self._ledger_file)
+
+    @property
+    def agent_id(self) -> str:
+        return self._agent_id
+
+    @property
+    def public_key_hex(self) -> str:
+        return self._key_manager.public_key_hex
+
+    @property
+    def entries(self) -> List[ExecutionEnvelope]:
+        return list(self._chain)
+
+    def entry_count(self) -> int:
+        return len(self._chain)
+
+    def head(self) -> Optional[ExecutionEnvelope]:
+        return self._chain[-1] if self._chain else None
+
+    # ── Core: emit ────────────────────────────────────────────
 
     def emit(
         self,
         record_type: str,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: dict,
     ) -> ExecutionEnvelope:
-        """
-        Create, sign, and persist a new GEF entry.
-        """
-        if payload is None:
-            payload = {}
+
+        if record_type not in _VALID_RECORD_TYPES:
+            raise ValueError(
+                f"Invalid record_type '{record_type}'. "
+                f"Valid: {sorted(_VALID_RECORD_TYPES)}"
+            )
 
         with self._lock:
+            prev = self._chain[-1] if self._chain else None
+
             env = ExecutionEnvelope.create(
                 record_type=record_type,
                 agent_id=self._agent_id,
                 signer_public_key=self._key_manager.public_key_hex,
-                sequence=self._sequence,
+                sequence=len(self._chain),  # now correct after reload
                 payload=payload,
-                prev=self._prev,
+                prev=prev,
             ).sign(self._key_manager)
 
-            if self._mode == "strict":
-                self._safe_append(env)
-            elif self._mode == "ghost":
-                self._ghost_log.append(env)
+            self._chain.append(env)
+            self._persist(env)
 
-            self._prev     = env
-            self._sequence += 1
+            return env
 
-        return env
+    # ── Persistence ───────────────────────────────────────────
 
-    def verify_chain(self) -> bool:
-        """Verify full ledger chain integrity."""
-        from guardclaw.core.replay import ReplayEngine
-
-        if self._mode == "ghost":
-            if not self._ghost_log:
-                return True
-            prev = None
-            for i, env in enumerate(self._ghost_log):
-                if not env.verify_sequence(i):
-                    return False
-                if not env.verify_chain(prev):
-                    return False
-                if not env.verify_signature():
-                    return False
-                prev = env
-            return True
-
-        if not self._ledger_file.exists():
-            return True
-
-        engine = ReplayEngine(silent=True)
-        engine.load(str(self._ledger_file))
-        return engine.verify().chain_valid
-
-    def get_stats(self) -> Dict[str, Any]:
-        from guardclaw.core.models import GEF_VERSION, GENESIS_HASH
-        return {
-            "agent_id":         self._agent_id,
-            "mode":             self._mode,
-            "next_sequence":    self._sequence,
-            "last_record_id":   (
-                self._prev.record_id if self._prev else None
-            ),
-            "last_causal_hash": (
-                self._prev.causal_hash if self._prev else GENESIS_HASH
-            ),
-            "ledger_file":      (
-                str(self._ledger_file)
-                if self._mode == "strict" else None
-            ),
-            "gef_version":      GEF_VERSION,
-        }
-
-    @property
-    def mode(self) -> str:
-        return self._mode
-
-    @property
-    def entries(self) -> List[ExecutionEnvelope]:
-        if self._mode == "ghost":
-            return list(self._ghost_log)
-        return []
-
-    def close(self) -> None:
-        if self._mode == "strict" and self._file:
-            self._file.flush()
-            os.fsync(self._file.fileno())
-            self._file.close()
-            self._file = None
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_):
-        self.close()
-
-    # ── Internal — Safe Append Protocol ──────────────────────
-
-    def _open_and_recover(self) -> None:
-        if self._ledger_file.exists():
-            self._recover()
-            self._resume_sequence()
-
-        self._file = open(self._ledger_file, "ab")
-
-    def _recover(self) -> None:
-        path = self._ledger_file
-        size = path.stat().st_size
-        if size == 0:
+    def _persist(self, env: ExecutionEnvelope) -> None:
+        if self._ledger_file is None:
             return
 
-        with open(path, "rb") as f:
-            f.seek(-1, os.SEEK_END)
-            last_byte = f.read(1)
+        with open(self._ledger_file, "a", encoding="utf-8", newline="") as f:
+            f.write(json.dumps(env.to_dict(), separators=(",", ":")) + "\n")
+            f.flush()
 
-        # FIX: Added missing \n
-        if last_byte == b"\n":
+    # ── 🔥 CRASH RECOVERY FIX ─────────────────────────────────
+
+    def _recover_file(self) -> None:
+        """
+        Strip incomplete last line ONLY (true crash recovery).
+        """
+        if self._ledger_file is None or not self._ledger_file.exists():
             return
 
-        with open(path, "rb") as f:
+        with open(self._ledger_file, "rb") as f:
             content = f.read()
 
-        # FIX: Added missing \n
-        last_newline = content.rfind(b"\n")
-        if last_newline == -1:
-            truncate_to = 0
-        else:
-            truncate_to = last_newline + 1
+        if not content:
+            return
 
-        with open(path, "rb+") as f: # Changed to rb+ for truncation
-            f.truncate(truncate_to)
+        # If last byte is not newline → incomplete write
+        if not content.endswith(b"\n"):
+            last_newline = content.rfind(b"\n")
 
-    def _resume_sequence(self) -> None:
-        last_env = None
-        count    = 0
+            if last_newline != -1:
+                content = content[: last_newline + 1]
+            else:
+                content = b""  # everything corrupt
+
+            with open(self._ledger_file, "wb") as f:
+                f.write(content)
+
+    # ── 🔥 STATE RESTORE FIX (THE REAL BUG) ───────────────────
+
+    def _load_existing_chain(self) -> None:
+        """
+        Load existing valid entries into memory.
+        This ensures sequence + hash continuity.
+        """
+        if self._ledger_file is None or not self._ledger_file.exists():
+            return
+
+        self._chain = []
 
         with open(self._ledger_file, "r", encoding="utf-8") as f:
-            for raw in f:
-                raw = raw.strip()
+            for line in f:
+                raw = line.strip()
                 if not raw:
                     continue
+
                 try:
-                    data     = json.loads(raw)
-                    last_env = ExecutionEnvelope.from_dict(data)
-                    count   += 1
+                    data = json.loads(raw)
+                    env = ExecutionEnvelope.from_dict(data)
                 except Exception:
-                    break
+                    break  # safety (should not happen after recovery)
 
-        self._sequence = count
-        self._prev     = last_env
+                self._chain.append(env)
 
-    def _safe_append(self, env: ExecutionEnvelope) -> None:
-        # FIX: Added missing \n
-        line = (json.dumps(env.to_dict(), separators=(",", ":")) + "\n").encode("utf-8")
-        self._file.write(line)
-        self._file.flush()
-        os.fsync(self._file.fileno())
+    def close(self) -> None:
+        return None
+
+    # ── Verification ──────────────────────────────────────────
+
+    def verify_chain(self) -> bool:
+        if self._ledger_file is None:
+            return True
+
+        from guardclaw.core.replay import ReplayEngine
+
+        engine = ReplayEngine(parallel=False, silent=True)
+        engine.load(str(self._ledger_file))
+        summary = engine.verify()
+
+        return summary.chain_valid
+
+    # ── Class method: load ────────────────────────────────────
+
+    @classmethod
+    def load(
+        cls,
+        ledger_path: str,
+        key_manager: Ed25519KeyManager,
+        agent_id: str = "loaded",
+    ) -> "GEFLedger":
+
+        path = Path(ledger_path)
+
+        if not path.exists():
+            raise FileNotFoundError(f"Ledger not found: {ledger_path}")
+
+        instance = cls.__new__(cls)
+
+        instance._key_manager = key_manager
+        instance._agent_id = agent_id
+        instance._mode = "strict"
+        instance._chain = []
+        instance._lock = threading.Lock()
+        instance._ledger_file = path
+
+        # 🔥 reuse same logic
+        instance._recover_file()
+        instance._load_existing_chain()
+
+        return instance
+
+    def __repr__(self) -> str:
+        return (
+            f"GEFLedger("
+            f"agent_id={self._agent_id!r}, "
+            f"entries={len(self._chain)}, "
+            f"path={self.get_path()!r}"
+            f")"
+        )

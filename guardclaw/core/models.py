@@ -71,6 +71,13 @@ CHANGE LOG:
                if env.verify_signature():
              must now use:
                sig_ok, sig_reason = env.verify_signature()
+
+#     v0.2.2 — trigger_hash added as optional payload field (Phase 2B).
+#              Stored in payload dict, not as a top-level envelope field.
+#              Raw trigger text is NEVER persisted — only SHA-256 hex digest.
+#              No changes to signing dict, chain dict, or schema validation.
+#              Backward compatible: old envelopes without trigger_hash
+#              remain fully valid and verifiable.
 """
 
 import hashlib
