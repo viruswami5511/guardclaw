@@ -1,4 +1,4 @@
-[project]
+﻿[project]
 name = "guardclaw"
 version = "0.7.0"
 description = "Cryptographic execution evidence for AI agents."
@@ -47,4 +47,4 @@ markers = [
 
 [build-system]
 requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
