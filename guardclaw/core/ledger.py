@@ -56,10 +56,7 @@ class GEFLedger:
             fname = ledger_filename or self.LEDGERFILENAME
             self._ledger_file = lp / fname
 
-            # 🔥 FIX 1 — clean corrupted tail
             self._recover_file()
-
-            # 🔥 FIX 2 — restore in-memory state
             self._load_existing_chain()
 
     # ── Public API ────────────────────────────────────────────
@@ -106,7 +103,7 @@ class GEFLedger:
                 record_type=record_type,
                 agent_id=self._agent_id,
                 signer_public_key=self._key_manager.public_key_hex,
-                sequence=len(self._chain),  # now correct after reload
+                sequence=len(self._chain),
                 payload=payload,
                 prev=prev,
             ).sign(self._key_manager)
@@ -126,12 +123,10 @@ class GEFLedger:
             f.write(json.dumps(env.to_dict(), separators=(",", ":")) + "\n")
             f.flush()
 
-    # ── 🔥 CRASH RECOVERY FIX ─────────────────────────────────
+    # ── Crash Recovery ────────────────────────────────────────
 
     def _recover_file(self) -> None:
-        """
-        Strip incomplete last line ONLY (true crash recovery).
-        """
+        """Strip incomplete last line only (true crash recovery)."""
         if self._ledger_file is None or not self._ledger_file.exists():
             return
 
@@ -141,25 +136,21 @@ class GEFLedger:
         if not content:
             return
 
-        # If last byte is not newline → incomplete write
         if not content.endswith(b"\n"):
             last_newline = content.rfind(b"\n")
 
             if last_newline != -1:
                 content = content[: last_newline + 1]
             else:
-                content = b""  # everything corrupt
+                content = b""
 
             with open(self._ledger_file, "wb") as f:
                 f.write(content)
 
-    # ── 🔥 STATE RESTORE FIX (THE REAL BUG) ───────────────────
+    # ── State Restore ─────────────────────────────────────────
 
     def _load_existing_chain(self) -> None:
-        """
-        Load existing valid entries into memory.
-        This ensures sequence + hash continuity.
-        """
+        """Load existing valid entries into memory for sequence + hash continuity."""
         if self._ledger_file is None or not self._ledger_file.exists():
             return
 
@@ -175,7 +166,7 @@ class GEFLedger:
                     data = json.loads(raw)
                     env = ExecutionEnvelope.from_dict(data)
                 except Exception:
-                    break  # safety (should not happen after recovery)
+                    break
 
                 self._chain.append(env)
 
@@ -194,7 +185,8 @@ class GEFLedger:
         engine.load(str(self._ledger_file))
         summary = engine.verify()
 
-        return summary.chain_valid
+        # FIX: was summary.chain_valid — correct attribute is summary.chainvalid
+        return summary.chainvalid
 
     # ── Class method: load ────────────────────────────────────
 
@@ -220,7 +212,6 @@ class GEFLedger:
         instance._lock = threading.Lock()
         instance._ledger_file = path
 
-        # 🔥 reuse same logic
         instance._recover_file()
         instance._load_existing_chain()
 

@@ -1,51 +1,86 @@
-# GuardClaw
+﻿# GuardClaw
 
-Cryptographic execution integrity for autonomous AI agents.
+**Cryptographic execution integrity for autonomous AI agents.**
 
 [![PyPI](https://img.shields.io/pypi/v/guardclaw)](https://pypi.org/project/guardclaw/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/guardclaw/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
-[![Protocol](https://img.shields.io/badge/protocol-GEF--SPEC--1.0-green)](SPEC.md)
-[![Tests](https://img.shields.io/badge/tests-62%20passing-brightgreen)](#tests)
+[![Protocol](https://img.shields.io/badge/protocol-GEF--SPEC--1.0-green)](docs/GEF-SPEC-1.0.md)
+[![Tests](https://img.shields.io/badge/tests-117%20passing-brightgreen)](#tests)
 
 ---
 
-## What Problem This Solves
+**AI agents are executing real actions. Deleting files. Moving money. Calling APIs.**  
+**And you have no cryptographic proof of what they actually did.**
 
-AI agents are beginning to:
+Logs lie. Observability is not evidence. If something goes wrong — and it will —  
+you need to prove what happened. Not guess. Not hope. **Prove.**
 
-- execute financial transactions  
-- modify production infrastructure  
-- invoke tools and shell commands autonomously  
-- operate without synchronous human review  
+GuardClaw turns every agent action into tamper‑evident, cryptographically signed,  
+offline‑verifiable evidence. No server. No SaaS. No trust required.
 
-Traditional logs are mutable. Observability pipelines are not evidence.
-
-If an AI agent makes a critical decision, how do you **prove — cryptographically** what it actually did?
-
-GuardClaw implements **GEF-SPEC-1.0**, a language-neutral protocol for generating:
-
-> Tamper-evident, offline-verifiable execution ledgers.
-
-No server required. No SaaS dependency. No central verifier.  
-Just a file and a public key.
-
-
-GuardClaw is especially useful when agents perform financial or irreversible actions.
+**AI agents without cryptographic execution evidence will not meet future regulatory and security expectations.**
 
 ---
 
-## Core Concept
+## The Problem
 
-Each execution entry is:
+Traditional logging assumes good faith. Anyone with write access can modify a log.  
+Observability pipelines are not legally or forensically robust. They were never designed to be.
 
-1. Canonicalized (RFC 8785 JCS)  
-2. Linked to the previous entry via SHA-256  
-3. Signed using Ed25519  
-4. Appended to a JSONL ledger  
+**AI agents are now executing consequential, often irreversible actions:**
 
-Result: tamper-evident execution chain.  
-Any modification, deletion, or reordering → verification fails.
+- Financial transactions  
+- Infrastructure modifications  
+- Shell commands and file operations  
+- API calls with real‑world side effects  
+
+If an agent misbehaves, gets compromised, or is falsely accused —  
+can you prove what it actually did? With current tooling: **no.**
+
+---
+
+## The Solution
+
+GuardClaw implements **GEF‑SPEC‑1.0**, a cryptographic execution ledger protocol  
+that makes every agent action **provable, not just observable.**
+
+```text
+Each action → canonicalized → SHA‑256 chained → Ed25519 signed → appended.
+No step is optional. Every entry is independently verifiable and globally consistent.
+```
+
+Break the chain. Flip one byte. Reorder one entry.  
+**Verification fails — immediately, deterministically, without ambiguity.**
+
+---
+
+## Who This Is For
+
+- Teams deploying autonomous or semi-autonomous AI agents  
+- Security engineers who need provable execution trails  
+- Infra / platform teams building agent platforms  
+- Auditors and compliance teams evaluating AI system behavior
+
+---
+
+## Core Guarantees
+
+| What GuardClaw guarantees        | What that means in practice                        |
+|----------------------------------|----------------------------------------------------|
+| 🔐 Tamper detection              | Any modification to any entry is detectable        |
+| 🔁 Order integrity               | Reordering entries breaks verification             |
+| ❌ Deletion detection            | Missing entries invalidate the entire chain        |
+| ✍️ Signature authenticity        | Every entry is Ed25519‑signed by the agent        |
+| 📦 Portable evidence             | Export as a self‑contained `.gcbundle` for audits |
+
+**Honest limitations:**
+
+- Key compromise allows history rewrite  
+- No trusted timestamping (e.g. RFC 3161)  
+- No distributed consensus  
+
+GuardClaw is the **evidence layer**, not a blockchain, not a key vault, not a policy engine.
 
 ---
 
@@ -55,46 +90,11 @@ Any modification, deletion, or reordering → verification fails.
 pip install guardclaw
 ```
 
-Requires Python 3.9+
-
-Core dependencies: `cryptography`, `jcs`, `click`
+Requires **Python 3.9+**. Core dependencies: `cryptography`, `jcs`, `click`.
 
 ---
 
 ## Quick Start
-
-Simplest API for recording events:
-
-```python
-from guardclaw import init_global_ledger, Ed25519KeyManager
-from guardclaw.api import record_action
-
-key = Ed25519KeyManager.generate()
-
-init_global_ledger(
-    key_manager=key,
-    agent_id="agent-001",
-)
-
-record_action(
-    agent_id="agent-001",
-    action="tool.search",
-    result="success",
-    metadata={"query": "AI safety"},
-)
-```
-
-Ledger format: JSON Lines (one signed envelope per line).
-
-Default output location:
-
-```text
-.guardclaw/ledger/ledger.jsonl
-```
-
----
-
-## 30-Second Example
 
 ```python
 from guardclaw import GEFLedger, Ed25519KeyManager, RecordType
@@ -123,234 +123,206 @@ ledger.close()
 print("Chain valid:", ledger.verify_chain())
 ```
 
-Output:
+Output (ledger on disk):
 
 ```text
-agent_ledger/ledger.jsonl
+agent_ledger/ledger.gef   # JSONL format, one signed envelope per line
 ```
 
-Each line contains one signed execution envelope.
+One `.gef` file. One public key.  
+No network calls. No trusted server. No hidden state.
 
 ---
 
-## CLI Verification
+## How It Works
 
-Verify a ledger:
+Each execution entry is:
 
-```bash
-guardclaw verify agent_ledger/ledger.jsonl
+1. **Canonicalized** using RFC 8785 JCS — deterministic, byte‑for‑byte reproducible  
+2. **Hash‑chained** — each entry commits to the full history before it  
+3. **Ed25519 signed** — cryptographically bound to the agent’s identity  
+4. **Appended** to a JSONL `.gef` ledger  
+
+**Chain linkage:**
+
+```text
+causal_hash[N] = SHA256( JCS( entry[N-1] ) )
 ```
 
-Machine-readable output:
+The genesis entry uses a zero sentinel hash.  
+Any modification, deletion, or reordering → verification fails.
 
-```bash
-guardclaw verify agent_ledger/ledger.jsonl --format json
-```
+### Envelope Structure (GEF‑SPEC‑1.0)
 
-CI mode:
-
-```bash
-guardclaw verify agent_ledger/ledger.jsonl --quiet
-```
-
-Verification checks:
-
-- signature validity  
-- hash chain continuity  
-- sequence monotonicity  
-- schema correctness  
-- protocol version consistency  
+| Field              | Description                                      |
+|--------------------|--------------------------------------------------|
+| `gef_version`      | Protocol version                                 |
+| `record_id`        | UUIDv4 — globally unique entry identifier        |
+| `record_type`      | `genesis` / `execution` / `result` / `intent`    |
+| `agent_id`         | Agent identifier                                 |
+| `signer_public_key`| Ed25519 public key (base64url)                   |
+| `sequence`         | Monotonic counter — gaps are tamper signals      |
+| `nonce`            | CSPRNG hex; presence supports replay resistance  |
+| `timestamp`        | ISO‑8601 UTC                                     |
+| `causal_hash`      | SHA‑256 of previous entry (JCS‑canonicalized)    |
+| `payload`          | Application JSON payload                         |
+| `signature`        | Ed25519 over the signing surface (excludes this) |
 
 ---
 
-## Optional Dependencies
-
-Install integrations:
+## Verification
 
 ```bash
-pip install guardclaw[langchain]
-pip install guardclaw[crewai]
+# Verify a ledger
+guardclaw verify agent_ledger/ledger.gef
+
+# Verify a bundle (verifies contained ledger)
+guardclaw verify case.gcbundle
+
+# JSON output for CI/automation
+guardclaw verify agent_ledger/ledger.gef --format json
+
+# Exit‑code‑only mode (CI pipelines)
+guardclaw verify agent_ledger/ledger.gef --quiet
+
+# Export full audit report
+guardclaw verify agent_ledger/ledger.gef --format json > report.json
 ```
+
+Verification checks on every entry:
+
+- Ed25519 signature validity  
+- Hash chain continuity (`causal_hash` linkage)  
+- Sequence monotonicity (gap detection)  
+- Schema correctness  
+- Protocol version consistency  
+- Nonce presence / basic replay resistance  
+
+Exit codes: `0` = valid, `1` = invalid, `2` = error.
 
 ---
 
-## Integrations (v0.6.1)
+## Evidence Bundles
 
-GuardClaw integrates with AI systems at multiple layers.
+When you need to share proof with an auditor, regulator, or third party — export a bundle:
 
-### 🐍 LangChain Adapter
+```bash
+guardclaw export agent_ledger/ledger.gef
+guardclaw export audit.gef --output case.gcbundle
+guardclaw export audit.gef --output ./evidence --format json
+```
+
+**Bundle layout:**
+
+```text
+case.gcbundle/
+├── ledger.gef          ← Primary cryptographic trust anchor
+├── manifest.json       ← Bundle identity + ledger stats
+├── verification.json   ← Verification snapshot (informational only)
+├── public_key.json     ← Ed25519 key extracted FROM the ledger
+├── summary.json        ← Replay summary
+└── report.html         ← Self‑contained human‑readable evidence report
+```
+
+**Trust model — non‑negotiable:**
+
+- `ledger.gef` is the **primary cryptographic trust anchor.** All other files are derived.  
+- `verification.json` is **informational only.** Consumers should re‑verify `ledger.gef` themselves.  
+- `public_key.json` is extracted from `signer_public_key` inside the ledger —  
+  never generated independently — preventing identity substitution attacks.
+
+Export is refused if the ledger is invalid.  
+Ledgers with multiple signing identities are rejected during export validation.
+
+---
+
+## Integrations
+
+### LangChain
 
 ```python
 from guardclaw.adapters.langchain import GuardClawCallbackHandler
 
 handler = GuardClawCallbackHandler(agent_id="agent")
-
-agent.run(
-    "task",
-    callbacks=[handler],
-)
+agent.run("task", callbacks=[handler])
 ```
 
-Records:
-
-- tool calls  
-- LLM prompts  
-- completions  
-- tool errors  
+Records: tool calls, LLM prompts, completions, tool errors.
 
 ---
 
-### 🤖 CrewAI Adapter
+### CrewAI
 
 ```python
 from guardclaw.adapters.crewai import GuardClawCrewAdapter
 
 adapter = GuardClawCrewAdapter("crew-agent")
-
-crew = Crew(
-    agents=[agent],
-    tasks=[task],
-    step_callback=adapter.record_step,
-)
+crew = Crew(agents=[agent], tasks=[task], step_callback=adapter.record_step)
 ```
 
-Records:
-
-- agent steps  
-- task results  
-- tool errors  
+Records: agent steps, task results, tool errors.
 
 ---
 
-### 🔌 MCP Proxy (Framework-Agnostic)
+### MCP Proxy (Framework‑Agnostic)
 
 ```python
 from guardclaw.mcp import GuardClawMCPProxy
 
 proxy = GuardClawMCPProxy("agent")
-
 proxy.register_tool("search", search)
-
 proxy.call("search", query="AI safety")
 ```
 
-Records:
-
-- INTENT → RESULT / FAILURE  
-
-Works with tool-calling frameworks including:
-
-- OpenAI  
-- Anthropic Claude  
-- LangChain  
-- CrewAI  
-- custom agents  
+Records `INTENT → RESULT / FAILURE` pairs.  
+Works with OpenAI, Anthropic, LangChain, CrewAI, and custom agents.
 
 ---
 
-## Envelope Structure (GEF-SPEC-1.0)
+## Performance
 
-| Field              | Description                    |
-|--------------------|--------------------------------|
-| `gef_version`      | Protocol version               |
-| `record_id`        | UUIDv4                         |
-| `record_type`      | `execution` / `result` / `intent` |
-| `agent_id`         | Agent identifier               |
-| `signer_public_key`| Ed25519 public key             |
-| `sequence`         | Monotonic counter              |
-| `nonce`            | CSPRNG hex                     |
-| `timestamp`        | ISO-8601 UTC                   |
-| `causal_hash`      | SHA-256 of previous entry      |
-| `payload`          | Application JSON               |
-| `signature`        | Ed25519 signature              |
+Benchmarked at 1M entries — local machine, single‑threaded, strict durability (fsync) enabled, Ed25519 signing on: 
 
-Signing surface excludes the `signature` field.
+| Metric                | Value                |
+|-----------------------|----------------------|
+| Entries written       | 1,000,000            |
+| Write speed           | ~760 entries/sec     |
+| Ledger size           | ~567 MB              |
+| Full verify speed     | ~9,200 entries/sec   |
+| Stream verify speed   | ~2,700 entries/sec   |
+| Stream verify memory  | ~39 MB — O(1)        |
 
 ---
 
-## Integrity Model
+## Compliance & Audit Readiness
 
-Chain:
+GuardClaw is not a “compliance product” by itself, but it **provides the cryptographic
+evidence layer** that modern regulations and auditors increasingly expect.
 
-```text
-causal_hash[N] = SHA256(JCS(entry[N-1]))
-```
+When combined with correct data handling, key management, and governance, GuardClaw’s
+ledgers and evidence bundles can support:
 
-Genesis entry uses a zero sentinel hash.
+- Financial and operational audits (e.g. SOX‑style internal controls)
+- EU‑style regulatory investigations (GDPR/DORA/AI‑Act contexts)
+- India/RBI‑aligned IT and incident forensics expectations
+- Internal risk, security, and model‑governance reviews
 
-A valid ledger requires:
-
-- valid signatures  
-- continuous sequence numbers  
-- correct hash chain  
-- schema validity  
-- consistent protocol version  
-
----
-
-## Performance (1M Entry Benchmark)
-
-| Metric          | Value              |
-|-----------------|--------------------|
-| Entries written | 1,000,000          |
-| Write speed     | ~760 entries/sec   |
-| Ledger size     | ~567 MB            |
-| Full verify     | ~9,200 entries/sec |
-| Stream verify   | ~2,700 entries/sec |
-| Stream memory   | ~39 MB (O(1))      |
-
-Environment:
-
-- Python 3.13  
-- single thread  
-- strict fsync  
-- Ed25519 signing enabled  
-
----
-
-## Security Model
-
-GuardClaw guarantees:
-
-- tamper detection  
-- deletion detection  
-- reordering detection  
-- signature authenticity  
-
-Limitations:
-
-- key compromise allows history rewrite  
-- no trusted timestamps  
-- no distributed consensus  
-
----
-
-## Project Structure
-
-```text
-guardclaw/
-├── core/          # cryptographic protocol
-├── adapters/      # framework integrations
-│   ├── langchain.py
-│   └── crewai.py
-├── mcp/           # tool proxy
-│   └── proxy.py
-├── api.py         # integration API
-└── cli.py         # verification CLI
-```
+GuardClaw does one thing extremely well: it gives you a tamper‑evident, independently
+verifiable record of what your AI agents actually did. That record can be plugged into
+whatever regulatory or compliance regime you operate under.
 
 ---
 
 ## Tests
 
-62 adversarial tests (1 skipped), covering:
+**117 tests passing.** Adversarial scenarios covered:
 
-- tamper attacks  
-- replay attacks  
-- canonicalization determinism  
-- crash recovery  
-
-Run locally:
+- Payload, signature, and hash tampering  
+- Replay attacks  
+- Chain corruption (sequence gaps, causal hash mismatch)  
+- Identity mismatch (multiple signing keys)  
+- Canonicalization determinism  
+- Crash recovery and strict vs recovery modes  
 
 ```bash
 pytest
@@ -360,35 +332,63 @@ pytest
 
 ## Specification
 
-Protocol specification: **GEF-SPEC-1.0**
+**GEF-SPEC-1.0** — Stable. Implemented in GuardClaw v0.7.x.
 
-Defines:
+Defines the complete contract for:
 
-- envelope schema  
-- canonicalization contract  
-- hash chain linkage  
-- verification algorithm  
+- Envelope schema and field semantics
+- RFC 8785 JCS canonicalization
+- SHA-256 hash chain linkage rules
+- Ed25519 signing surface
+- Verification algorithm, failure types, and exit codes
 
-See:
+See [`docs/GEF-SPEC-1.0.md`](docs/GEF-SPEC-1.0.md).
+
+**GEF-SPEC-v1.1-draft** — Experimental roadmap. Not yet implemented.  
+Covers subject-scoped nonces, multi-ledger identity, content commitment,
+key rotation, and tail anchoring.
+
+See [`docs/GEF-SPEC-v1.1-draft.md`](docs/GEF-SPEC-v1.1-draft.md).
+
+---
+
+## Project Structure
 
 ```text
-SPEC.md
+guardclaw/
+├── core/           # GEF‑SPEC‑1.0 protocol implementation
+├── bundle/         # Evidence bundle export (.gcbundle)
+│   ├── exporter.py
+│   ├── models.py
+│   └── report.py
+├── adapters/       # Framework integrations
+│   ├── langchain.py
+│   └── crewai.py
+├── mcp/            # Tool proxy (framework‑agnostic)
+├── cli/            # verify + export commands
+├── api.py          # GEFSession, record_action, verify_ledger
+└── trace.py        # @trace decorator
 ```
 
 ---
 
 ## Status
 
-Version: v0.6.1  
-Protocol: GEF-SPEC-1.0  
-License: Apache 2.0  
-
-Production-ready cryptographic execution ledger for AI agents.
+| Property        | Value        |
+|-----------------|--------------|
+| Version         | v0.7.0       |
+| Protocol        | GEF‑SPEC‑1.0 |
+| License         | Apache 2.0   |
+| Ledger protocol | Stable       |
+| Bundle system   | Stable (v1)  |
 
 ---
 
 ## Philosophy
 
+The AI industry has built extraordinary capabilities with essentially zero  
+accountability infrastructure. Agents act. Logs are written. Nobody can prove anything.
+
 > Observability is not evidence.  
-> Logs are not proof.  
-> Integrity is measurable.
+> Logs are narratives. Evidence is math.  
+> GuardClaw turns AI execution into cryptographic truth.

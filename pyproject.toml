@@ -1,40 +1,13 @@
 [project]
 name = "guardclaw"
-version = "0.6.5"
-description = "Cryptographic execution evidence for AI agents. Ed25519-signed, SHA-256 chain-hashed, offline-verifiable — prove what your agent did."
+version = "0.7.0"
+description = "Cryptographic execution evidence for AI agents."
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "Apache-2.0"}
 authors = [
     { name = "Viru Swami", email = "viruswami5511@gmail.com" }
 ]
-keywords = [
-    "ai agents",
-    "execution integrity",
-    "cryptographic audit log",
-    "tamper evident",
-    "ed25519",
-    "gef protocol",
-    "langchain",
-    "crewai",
-    "ai security",
-    "audit trail",
-    "accountability",
-    "verification",
-]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Security :: Cryptography",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "License :: OSI Approved :: Apache Software License"
-]
-
 dependencies = [
     "cryptography>=41.0.0",
     "jcs>=0.2.0",
@@ -42,44 +15,36 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-langchain = ["langchain>=0.1.0"]
-crewai = ["crewai>=0.28.0"]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "black>=23.0.0",
-    "mypy>=1.0.0",
 ]
-
-[project.urls]
-Repository = "https://github.com/viruswami5511/guardclaw"
-Homepage = "https://github.com/viruswami5511/guardclaw"
-Documentation = "https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md"
-"Bug Tracker" = "https://github.com/viruswami5511/guardclaw/issues"
-Changelog = "https://github.com/viruswami5511/guardclaw/releases"
 
 [project.scripts]
 guardclaw = "guardclaw.cli:cli"
+
+[project.entry-points."pytest11"]
+guardclaw = "guardclaw.pytest_plugin"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["guardclaw*"]
 exclude = ["tests*", "examples*", "docs*"]
 
-[project.entry-points."pytest11"]
-guardclaw = "guardclaw.pytest_plugin"
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+timeout = 0
+addopts = "-v"
 markers = [
-    "critical: must pass before HN launch",
+    "critical: must pass before release",
     "hard: security gap, fix before launch",
     "medium: UX gap, fix if time permits",
-    "critical: marks tests as critical path (deselect with '-m not critical')",
-    "hard: marks tests as hard/stress tests",
-    "medium: marks tests as medium priority",
+    "slow: stress tests that run for a long time",
 ]
 
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"

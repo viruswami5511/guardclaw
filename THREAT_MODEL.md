@@ -1,7 +1,7 @@
-# GuardClaw Threat Model
+﻿# GuardClaw Threat Model
 
 **Status:** Stable  
-**Version:** v0.6.1
+**Version:** v0.7.0
 **Protocol:** GEF-SPEC-1.0  
 **Audience:** Security reviewers, contributors, enterprise evaluators  
 **Scope:** Cryptographic evidence ledger for AI agent accountability  
@@ -12,7 +12,7 @@ Full security specification: [SPEC.md Section 11](SPEC.md)
 
 ## 1. Purpose
 
-GuardClaw v0.6.1 implements GEF-SPEC-1.0 — a cryptographic accountability protocol for autonomous AI agents.
+GuardClaw v0.7.0 implements GEF-SPEC-1.0 â€” a cryptographic accountability protocol for autonomous AI agents.
 
 It provides:
 
@@ -31,7 +31,7 @@ It does not provide:
 - Authorization control
 - Key compromise detection
 - Tail truncation detection without external anchoring
-- Trusted timestamp authority (Level 4 — future)
+- Trusted timestamp authority (Level 4 â€” future)
 
 ---
 
@@ -42,7 +42,7 @@ It does not provide:
 GuardClaw guarantees:
 
 1. **Event Integrity**  
-   Any modification to any field of any signed envelope — including `timestamp`, `sequence`, `agent_id`, or `payload` — invalidates the Ed25519 signature. Detection is certain.
+   Any modification to any field of any signed envelope â€” including `timestamp`, `sequence`, `agent_id`, or `payload` â€” invalidates the Ed25519 signature. Detection is certain.
 
 2. **Causal Chain Integrity**  
    The SHA-256 hash chain binds every envelope to its predecessor. Inserting, deleting, or reordering any entry breaks the chain hash of every subsequent entry. Detection is certain.
@@ -60,12 +60,12 @@ GuardClaw guarantees:
 
 ## 3. Explicit Non-Guarantees
 
-GuardClaw v0.6.1 does NOT guarantee:
+GuardClaw v0.7.0 does NOT guarantee:
 
 - Prevention of malicious actions by the agent
 - Authorization or policy correctness
 - Cross-ledger replay prevention
-- Tail truncation detection (requires external anchoring — Level 4)
+- Tail truncation detection (requires external anchoring â€” Level 4)
 - Trusted wall-clock time (timestamps are operator-asserted)
 - Protection against stolen private keys
 - Immutable storage at the OS/filesystem level
@@ -76,9 +76,9 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 ## 4. Threat Classification
 
-- ✅ Detected and provable by design
-- ⚠️ Detectable within defined scope
-- ❌ Out of scope
+- âœ… Detected and provable by design
+- âš ï¸ Detectable within defined scope
+- âŒ Out of scope
 
 ---
 
@@ -88,9 +88,9 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** An attacker modifies any field of a signed envelope.
 
-**Classification:** ✅ Detected by design
+**Classification:** âœ… Detected by design
 
-**Mechanism:** Ed25519 signature verification fails. The `signer_public_key` is embedded in the signing surface — key substitution also breaks the chain hash of the next entry.
+**Mechanism:** Ed25519 signature verification fails. The `signer_public_key` is embedded in the signing surface â€” key substitution also breaks the chain hash of the next entry.
 
 ---
 
@@ -98,7 +98,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** An attacker injects a new record between two existing records.
 
-**Classification:** ✅ Detected by design
+**Classification:** âœ… Detected by design
 
 **Mechanism:** The injected record's `causal_hash` will not match SHA-256(JCS(prev.signing_surface)). Chain break reported at the injection point and every subsequent entry.
 
@@ -108,7 +108,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** An attacker deletes a record from the middle of the ledger.
 
-**Classification:** ✅ Detected by design
+**Classification:** âœ… Detected by design
 
 **Mechanism:** Sequence gap detection (INV-25) and chain break at the next entry. Both violations are reported.
 
@@ -118,7 +118,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** An attacker reorders records within the ledger.
 
-**Classification:** ✅ Detected by design
+**Classification:** âœ… Detected by design
 
 **Mechanism:** Both sequence gaps and chain breaks are detected.
 
@@ -128,9 +128,9 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** A captured valid envelope is re-inserted into the same ledger.
 
-**Classification:** ✅ Detected by design
+**Classification:** âœ… Detected by design
 
-**Mechanism:** INV-29 — the replay engine actively scans all nonces. Duplicate nonce reported as `schema` violation. Chain break also reported because the re-inserted envelope's `causal_hash` will not match the expected value at its position.
+**Mechanism:** INV-29 â€” the replay engine actively scans all nonces. Duplicate nonce reported as `schema` violation. Chain break also reported because the re-inserted envelope's `causal_hash` will not match the expected value at its position.
 
 ---
 
@@ -138,7 +138,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** An attacker deletes records from the end of the ledger.
 
-**Classification:** ⚠️ Detectable with external anchoring only
+**Classification:** âš ï¸ Detectable with external anchoring only
 
 **Mechanism:** A truncated ledger passes all seven verification steps against its remaining records. Truncation is not detectable by a verifier operating on the ledger alone.
 
@@ -150,9 +150,9 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** System clock is altered before emitting envelopes.
 
-**Classification:** ⚠️ Detectable with external anchoring only
+**Classification:** âš ï¸ Detectable with external anchoring only
 
-**Reason:** `timestamp` is in the signing surface — it cannot be modified after signing. However, it reflects operator-asserted time, not
+**Reason:** `timestamp` is in the signing surface â€” it cannot be modified after signing. However, it reflects operator-asserted time, not
 authoritative wall-clock time. RFC 3161 anchoring (Level 4) provides authoritative time proof.
 
 ---
@@ -161,7 +161,7 @@ authoritative wall-clock time. RFC 3161 anchoring (Level 4) provides authoritati
 
 **Scenario:** An attacker obtains the private signing key.
 
-**Classification:** ❌ Out of scope
+**Classification:** âŒ Out of scope
 
 **Reason:** A compromised key allows production of valid-appearing new records. It does not allow retroactive modification of existing records without breaking the chain hash. Key rotation requires creating a new ledger. Multi-key support is planned for a future minor version (GEF-SPEC-1.1).
 
@@ -170,7 +170,7 @@ authoritative wall-clock time. RFC 3161 anchoring (Level 4) provides authoritati
 ### 5.9 Cross-Ledger Replay
 
 **Scenario:** A valid envelope from one ledger is replayed into another. 
-**Classification:** ❌ Out of scope (ledger-local integrity only)
+**Classification:** âŒ Out of scope (ledger-local integrity only)
 
 **Reason:** GEF v1.0 provides ledger-local integrity. Cross-ledger replay prevention requires application-layer controls.
 
@@ -180,7 +180,7 @@ authoritative wall-clock time. RFC 3161 anchoring (Level 4) provides authoritati
 
 **Scenario:** A vulnerability is found in Ed25519, SHA-256, or RFC 8785.
 
-**Classification:** ❌ Out of scope
+**Classification:** âŒ Out of scope
 
 **Reason:** Standard inheritance risk. A new `gef_version` with updated
 primitives is required per SPEC.md Section 14.
@@ -191,16 +191,16 @@ primitives is required per SPEC.md Section 14.
 
 | Threat | Classification |
 |---|---|
-| Event field tampering | ✅ Detected |
-| Record insertion | ✅ Detected |
-| Record deletion (middle) | ✅ Detected |
-| Record reordering | ✅ Detected |
-| Replay within ledger | ✅ Detected (INV-29 + chain) |
-| Tail truncation | ⚠️ External anchoring required |
-| Timestamp manipulation | ⚠️ External anchoring required |
-| Key compromise | ❌ Out of scope |
-| Cross-ledger replay | ❌ Out of scope |
-| Cryptographic primitive flaw | ❌ Out of scope |
+| Event field tampering | âœ… Detected |
+| Record insertion | âœ… Detected |
+| Record deletion (middle) | âœ… Detected |
+| Record reordering | âœ… Detected |
+| Replay within ledger | âœ… Detected (INV-29 + chain) |
+| Tail truncation | âš ï¸ External anchoring required |
+| Timestamp manipulation | âš ï¸ External anchoring required |
+| Key compromise | âŒ Out of scope |
+| Cross-ledger replay | âŒ Out of scope |
+| Cryptographic primitive flaw | âŒ Out of scope |
 
 ---
 
@@ -215,4 +215,5 @@ GuardClaw prioritizes:
 
 GuardClaw proves what was recorded.  
 It does not prevent actions.
+
 

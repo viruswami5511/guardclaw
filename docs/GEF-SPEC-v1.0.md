@@ -1,1142 +1,361 @@
+# GuardClaw Evidence Format — GEF-SPEC-1.0
 
+> **Status:** Stable (Ledger Protocol) · **Applies to:** GuardClaw v0.7.x
 
-\# GuardClaw Evidence Format (GEF) Specification v1.0
-
-
-
-\*\*Document:\*\* GEF-SPEC-v1.0
-
-\*\*Status:\*\* Draft
-
-\*\*Authors:\*\* GuardClaw Project
-
-\*\*Created:\*\* 2026-02-23
-
-\*\*Repository:\*\* https://github.com/viruswami5511/guardclaw
-
-
+GEF-SPEC-1.0 defines a **deterministic, verifiable execution history format for autonomous systems**.
 
 ---
 
+## Table of Contents
 
-
-\## Abstract
-
-
-
-This document defines the GuardClaw Evidence Format (GEF), a protocol for producing cryptographically non-repudiable records of actions taken by autonomous AI agents. GEF provides per-action signing, replay-bound causality chaining, and offline verifiability without trust in any runtime or logging  infrastructure. 
-
-
-
----
-
-
-
-\## 1. Terminology
-
-
-
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
-
-
-
-\*\*Action Record:\*\* A single signed evidence unit representing one discrete agent action.
-
-
-
-\*\*Subject:\*\* The agent identity on whose behalf an action is recorded. 
-
-
-
-\*\*Ledger:\*\* An ordered, append-only sequence of Action Records sharing a genesis context.
-
-
-
-\*\*Genesis Record:\*\* The root record that initialises a Ledger and binds its identity parameters.
-
-
-
-\*\*Causal Hash:\*\* A SHA-256 digest of the Execution Envelope of the immediately preceding Action Record, binding records into a chain.
-
-
-
-\*\*Replay-Bound Nonce:\*\* A per-subject monotonically increasing unsigned 64-bit integer encoded as a base-10 string without leading zeros (except the value "0"). Each new record from a subject MUST carry a nonce strictly greater than the last observed nonce for that subject. Gaps are permitted. Contiguity is not required.
-
-
-
-\*\*Execution Envelope:\*\* The canonicalised byte payload over which the signature is computed, produced using the JSON Canonicalization Scheme (JCS) as defined in RFC 8785.
-
-
-
-\*\*Content Commitment:\*\* A SHA-256 digest substituting raw content when redaction is required.
-
-
+1. [Purpose](#1-purpose)
+2. [Scope and Non-Goals](#2-scope-and-non-goals)
+3. [Envelope Schema](#3-envelope-schema)
+4. [Canonical Serialization](#4-canonical-serialization)
+5. [Signing Model](#5-signing-model)
+6. [Hash Chain Construction](#6-hash-chain-construction)
+7. [Ledger Structure](#7-ledger-structure)
+8. [Verification Model](#8-verification-model)
+9. [Replay and Nonce Semantics](#9-replay-and-nonce-semantics)
+10. [Security Properties](#10-security-properties)
+11. [Versioning](#11-versioning)
+12. [Design Philosophy](#12-design-philosophy)
 
 ---
 
+## 1. Purpose
 
+GuardClaw is a **cryptographic execution ledger** for autonomous agent accountability.
 
-\## 2. Design Goals
+GEF-SPEC-1.0 defines:
 
+- The envelope schema (`ExecutionEnvelope`)
+- Canonical serialization (RFC 8785 JCS)
+- Hash-chain construction
+- Signature model (Ed25519)
+- Verification rules and failure conditions
 
+GuardClaw is an **evidence substrate**:
 
-GEF is designed to satisfy the following properties:
-
-
-
-1\. \*\*Non-repudiation.\*\* Each Action Record is signed at the moment of execution, before any result is returned to the caller. No post-hoc fabrication is possible without invalidating the signature.
-
-
-
-2\. \*\*Replay resistance.\*\* Each Action Record includes a subject-scoped nonce. A verifier MUST reject any record whose nonce does not exceed the last verified nonce for that subject.
-
-
-
-3\. \*\*Causal integrity.\*\* Each Action Record (except the Genesis Record) includes the Causal Hash of its predecessor. A verifier MUST reject any record whose Causal Hash does not match.
-
-
-
-4\. \*\*Offline verifiability.\*\* Verification MUST be possible using only the Ledger file and the signing public key. No network access, runtime connection, or trusted third party is required.
-
-
-
-5\. \*\*Redaction compatibility.\*\* Sensitive content MAY be replaced with a Content Commitment without invalidating the signature or weakening any of the above properties.
-
-
+- It proves what was recorded.
+- It does **not** enforce policy, block actions, or provide consensus.
 
 ---
 
+## 2. Scope and Non-Goals
 
+**GEF-SPEC-1.0 guarantees:**
 
-\## 3. Action Record Schema
+| Guarantee | Description |
+|---|---|
+| Tamper detection | Detects modification of payload, metadata, or structure |
+| Order integrity | Detects reordering via sequence + hash chain |
+| Deletion detection | Detects gaps and truncations |
+| Signature authenticity | Ed25519-bound to a keypair |
+| Offline verifiability | Requires only the ledger file + public key |
 
+**GEF-SPEC-1.0 does not provide:**
 
+- Authorization / policy engines
+- Settlement or business logic
+- Distributed consensus or BFT
+- Trusted timestamps (e.g. RFC 3161)
+- Key management or rotation schemes
+- Cross-system replay prevention
 
-An Action Record is a JSON object. All fields marked REQUIRED MUST be present. All string fields MUST be non-empty. Field order in the serialised form is defined in Section 5 (Canonicalisation).
+> GuardClaw is designed to be embedded into systems that provide those layers.
 
+---
 
+## 3. Envelope Schema
 
-Payload schemas defined in Section 3.3 specify minimum required fields. Implementations MAY include additional fields within the `payload` object. Unknown fields MUST NOT cause verification failure.
+The atomic unit of the ledger is the **`ExecutionEnvelope`** — a JSON object with the following fields:
 
-
-
-```json
-
+```jsonc
 {
-
-  "gef\_version":    "1.0",
-
-  "record\_id":      "<uuid-v4>",
-
-  "record\_type":    "<string>",
-
-  "subject\_id":     "<string>",
-
-  "ledger\_id":      "<uuid-v4>",
-
-  "sequence":       <integer>,
-
-  "timestamp\_utc":  "<ISO-8601-UTC>",
-
-  "causal\_hash":    "<hex-sha256 | null>",
-
-  "nonce":          "<uint64-decimal-string>",
-
-  "payload":        { },
-
-  "content\_mode":   "raw | hash-only",
-
-  "schema\_version": "1.0",
-
-  "signature":      "<base64url-ed25519>"
-
+  "gef_version":       "1.0",
+  "record_id":         "c2e0e2c4-5bb1-4c8f-8e51-7d37a1d2f5a1",
+  "record_type":       "execution",   // genesis | intent | execution | result | failure
+  "agent_id":          "agent-001",
+  "signer_public_key": "<base64url-ed25519-pubkey>",
+  "sequence":          41,
+  "nonce":             "b8f7da0e6c9246f5a37bf1f1d1c5b435",
+  "timestamp":         "2025-12-01T12:34:56.789012Z",
+  "causal_hash":       "0000000000000000000000000000000000000000000000000000000000000000",
+  "payload":           { },
+  "signature":         "<base64url-ed25519-signature>"
 }
-
 ```
 
+### 3.1 Field Requirements
 
+| Field | Requirement |
+|---|---|
+| `gef_version` | MUST equal `"1.0"` for GEF-SPEC-1.0 |
+| `record_id` | MUST be globally unique. UUIDv4 STRONGLY RECOMMENDED |
+| `record_type` | MUST be one of: `genesis`, `intent`, `execution`, `result`, `failure` |
+| `agent_id` | MUST be a non-empty string identifying the logical agent |
+| `signer_public_key` | MUST be a base64url-encoded Ed25519 public key |
+| `sequence` | MUST be an integer ≥ 0, starting at `0` for genesis, increasing by `+1` |
+| `nonce` | MUST be cryptographically random, ≥ 128 bits entropy, unique within ledger |
+| `timestamp` | MUST be an ISO-8601 UTC timestamp with timezone `Z` |
+| `causal_hash` | MUST equal `GENESIS_HASH` for sequence 0; SHA-256 of previous signing surface otherwise |
+| `payload` | MUST be valid JSON; semantics are application-defined |
+| `signature` | MUST be a base64url-encoded Ed25519 detached signature over the signing surface |
 
-\### 3.1 Field Definitions
+**`record_type` mode behaviour:**
 
+- In **strict mode** — implementations MUST reject unknown values.
+- In **forward-compatible mode** — implementations MAY ignore unknown values to allow interoperability with future spec versions (e.g., GEF-SPEC-v1.1).
+- Implementations MUST document which mode they operate in.
 
+> ⚠️ Missing or malformed fields MUST cause verification failure.
 
-| Field            | Required | Type   | Description |
+---
 
-|-------           |----------|------  |-------------|
+## 4. Canonical Serialization
 
-| `gef\_version`    | REQUIRED | string | MUST be `"1.0"` for this version |
+GEF-SPEC-1.0 uses deterministic canonical JSON encoding based on **RFC 8785 JCS** for the signing surface.
 
-| `record\_id`      | REQUIRED | string | UUID v4, unique per record |
+The signing surface consists of the entire envelope object **excluding the `signature` field**. All other fields — `gef_version`, `record_id`, `record_type`, `agent_id`, `signer_public_key`, `sequence`, `nonce`, `timestamp`, `causal_hash`, `payload` — MUST be included in the canonicalized structure.
 
-| `record\_type`    | REQUIRED | string | See Section 3.2 |
+### 4.1 Canonicalization Rules
 
-| `subject\_id`     | REQUIRED | string | Stable identifier of the acting agent |
+| Rule | Requirement |
+|---|---|
+| Encoding | UTF-8 |
+| Key ordering | Sorted JSON object keys |
+| Whitespace | No insignificant whitespace |
+| Numbers | No `NaN`/`Infinity`; only JSON-valid numbers |
+| Strings | Stable representation for identical logical values |
 
-| `ledger\_id`      | REQUIRED | string | UUID v4 of the containing Ledger |
+Given identical input envelopes, compliant implementations MUST produce identical canonical byte representations, hashes, and signature verification results.
 
-| `sequence`       | REQUIRED | integer| Zero-based, monotonically increasing per Ledger |
+> This determinism is what makes GEF a **protocol**, not just a library convention.
 
-| `timestamp\_utc`  | REQUIRED | string | See Section 3.4 |
+---
 
-| `causal\_hash`    | REQUIRED | string or null | SHA-256 hex of previous record's Execution Envelope; `null` only for Genesis Record |
+## 5. Signing Model
 
-| `nonce`          | REQUIRED | string | Unsigned 64-bit integer encoded as base-10 string without leading zeros (except `"0"`). MUST be strictly greater than the last observed nonce for the same `subject\_id` when compared as integers. Gaps are permitted. |
+### 5.1 Algorithm
 
-| `payload`        | REQUIRED | object | Action-type-specific data; see Section 3.3 |
+- Ed25519 (RFC 8032) MUST be used.
+- `signer_public_key` MUST be the public key corresponding to the private key used.
 
-| `content\_mode`   | REQUIRED | string | `"raw"` or `"hash-only"`; see Section 6 |
+### 5.2 Signing Surface
 
-| `schema\_version` | REQUIRED | string | MUST be `"1.0"` |
+The signing surface is the canonical JSON object that **excludes** the `signature` field:
 
-| `signature`      | REQUIRED | string | Base64url-encoded Ed25519 signature over Execution Envelope |
-
-
-
-\### 3.2 Record Types
-
-
-
-The following `record\_type` values are defined in this version:
-
-
-
-| Value       | Meaning |
-
-|---          |---      |
-
-| `genesis`   | Ledger initialisation record |
-
-| `intent`    | Agent receives instruction or goal |
-
-| `action`    | Agent executes a discrete operation |
-
-| `tool\_call` | Agent invokes an external tool or API |
-
-| `result`    | Agent emits an output or return value |
-
-| `approval`  | Human-in-the-loop approval or rejection |
-
-| `tombstone` | Agent session terminates |
-
-
-
-Implementations MAY define additional `record\_type` values using a reverse-domain prefix (e.g. `com.example.custom\_type`). Unknown types MUST NOT cause verification failure; they MUST be treated as opaque payloads.
-
-
-
-\### 3.3 Payload Schemas
-
-
-
-\#### `genesis`
-
-```json
-
+```jsonc
 {
-
-  "ledger\_name":  "<string>",
-
-  "created\_by":   "<string>",
-
-  "purpose":      "<string>",
-
-  "public\_key":   "<base64url-ed25519-public-key>"
-
+  "gef_version":       "...",
+  "record_id":         "...",
+  "record_type":       "...",
+  "agent_id":          "...",
+  "signer_public_key": "...",
+  "sequence":          41,
+  "nonce":             "...",
+  "timestamp":         "...",
+  "causal_hash":       "...",
+  "payload":           { }
 }
-
 ```
 
+**Signing procedure:**
 
+1. Construct the signing surface by removing `signature` from the envelope.
+2. Canonicalize via RFC 8785 JCS.
+3. Compute Ed25519 signature over the canonical bytes.
+4. Encode the signature as base64url and store it in `signature`.
 
-\#### `action` / `tool\_call`
+> Any modification to any signed field changes the canonical bytes and invalidates the signature.
 
-```json
+---
 
+## 6. Hash Chain Construction
+
+The ledger is a JSONL file (`.gef`), append-only, one envelope per line.
+
+### 6.1 Genesis Record
+
+For the genesis envelope (`sequence == 0`):
+
+- `record_type` MUST be `genesis`.
+- `causal_hash` MUST equal `GENESIS_HASH`.
+- All other invariants (schema, signature, canonicalization) MUST hold.
+
+**`GENESIS_HASH`** is defined as 32 zero bytes, encoded as a 64-character lowercase hexadecimal string:
+
+```
+GENESIS_HASH = "0000000000000000000000000000000000000000000000000000000000000000"
+```
+
+> ⚠️ All implementations MUST use this exact value. Any other value in the genesis `causal_hash` field MUST cause verification failure. Implementation-defined variation is not permitted — it would break cross-implementation interoperability, which is a core protocol guarantee.
+
+### 6.2 Non-Genesis Records
+
+For each envelope with `sequence == N` where `N > 0`:
+
+- `sequence` MUST equal `N`.
+- `causal_hash` MUST equal:
+
+```
+SHA256( canonical_signing_surface( entry at sequence N-1 ) )
+```
+
+Where `canonical_signing_surface` is the canonical JCS bytes of the previous envelope's signing surface (all fields except `signature`).
+
+### 6.3 Chain Head
+
+The **chain head hash** is defined as:
+
+```
+chain_head_hash     = SHA256( canonical_signing_surface( last_entry ) )
+chain_head_sequence = last_entry.sequence
+```
+
+This pair commits to the entire ledger history and can be externalized for anchoring (Git, RFC 3161 timestamping, transparency logs, etc.).
+
+---
+
+## 7. Ledger Structure
+
+| Property | Value |
+|---|---|
+| Physical format | JSONL (`.gef` extension RECOMMENDED) |
+| Line structure | Each non-empty line MUST contain exactly one `ExecutionEnvelope` |
+| Mutation model | Logically **append-only** |
+| Deletion markers | None defined in GEF-SPEC-1.0 |
+
+**Implications:** Truncation, deletion, or insertion of lines breaks sequence and/or hash-chain invariants. Verification detects such manipulations as chain violations.
+
+---
+
+## 8. Verification Model
+
+Verification is performed by a **Replay Engine** over a ledger file.
+
+- `signer_public_key` MUST remain consistent across all entries within a ledger.
+- If a different `signer_public_key` is observed in any entry after genesis, verification MUST fail with `SIGNER_MISMATCH`.
+
+### 8.1 Inputs
+
+- Ledger file (`.gef`)
+- Expected `signer_public_key` (optional, depending on verifier policy)
+
+### 8.2 Check Set and Order
+
+Implementations MAY internally optimize execution order, but MUST produce a deterministic failure result for a given input. The first reported failure MUST be consistent across runs within the same implementation.
+
+For each non-empty line:
+
+| # | Check | Failure Code |
+|---|---|---|
+| 1 | JSON decode | `MALFORMED_JSON` |
+| 2 | Schema validation against envelope schema | `SCHEMA_VIOLATION` |
+| 3 | Signature presence (`signature` MUST exist) | `MISSING_SIGNATURE` |
+| 4 | Signature encoding (MUST be valid base64url) | `INVALID_SIGNATURE_ENCODING` |
+| 5 | Signature crypto (Ed25519 verification MUST pass) | `INVALID_SIGNATURE` |
+| 6 | Genesis check (first entry MUST be `genesis` using `GENESIS_HASH`) | `GENESIS_MISSING` |
+| 7 | Sequence continuity (`sequence` MUST be contiguous from 0) | `SEQUENCE_GAP` |
+| 8 | GEF version consistency (`gef_version` MUST be identical across all entries) | `GEF_VERSION_MISMATCH` |
+| 9 | Causal hash (MUST match SHA-256 of previous signing surface) | `CAUSAL_HASH_MISMATCH` |
+| 10 | Nonce uniqueness (duplicate nonce within ledger MUST cause failure) | `DUPLICATE_NONCE` |
+
+Any failure produces a **`VerificationSummary`** containing at least:
+
+```jsonc
 {
-
-  "action\_type":  "<string>",
-
-  "parameters":   { },
-
-  "target":       "<string | null>"
-
+  "total_entries":    <integer>,
+  "chain_valid":      <bool>,
+  "failure_sequence": <integer | null>,
+  "failure_type":     "<FAILURE_CODE | null>",
+  "failure_detail":   "<string | null>"
 }
-
 ```
 
+### 8.3 Verification Modes
 
+| Mode | Behaviour | Unknown `record_type` |
+|---|---|---|
+| **Strict** | Fails on first violation. Ledger is invalid. | MUST cause failure |
+| **Recovery** | Verifies up to last valid prefix; returns partial integrity info | MUST be reported |
+| **Forward-compatible** | Enforces all cryptographic invariants; tolerates unknown types | MAY be ignored |
 
-\#### `intent`
+### 8.4 Mode Selection
 
-```json
-
-{
-
-  "instruction":  "<string>"
-
-}
-
-```
-
-
-
-\#### `result`
-
-```json
-
-{
-
-  "status":       "success | failure | partial",
-
-  "output":       "<any | content-commitment>",
-
-  "duration\_ms":  <integer>
-
-}
-
-```
-
-
-
-\#### `approval`
-
-```json
-
-{
-
-  "approver\_id":   "<string>",
-
-  "decision":      "approved | rejected",
-
-  "ref\_record\_id": "<uuid-v4>",
-
-  "reason":        "<string | null>"
-
-}
-
-```
-
-
-
-\#### `tombstone`
-
-```json
-
-{
-
-  "reason":  "<string | null>"
-
-}
-
-```
-
-
-
-\### 3.4 Timestamp Format
-
-
-
-`timestamp\_utc` MUST conform to the following constraints:
-
-
-
-\- MUST be expressed in UTC
-
-\- MUST end with the literal character `Z`
-
-\- MUST include exactly three fractional second digits
-
-\- MUST NOT include timezone offset notation
-
-\- MUST NOT omit the fractional seconds component
-
-
-
-Valid example:   `2026-02-23T16:30:00.000Z`
-
-Invalid example: `2026-02-23T22:00:00+05:30`
-
-Invalid example: `2026-02-23T16:30:00Z`
-
-
-
-Note: Standard library methods such as Python's
-
-`datetime.utcnow().isoformat()` do not guarantee three fractional digits when trailing digits are zero. Implementations MUST enforce the three-digit constraint explicitly.
-
-
+- Verification mode MUST be explicitly selected by the caller.
+- Implementations MUST NOT silently switch modes.
+- If no mode is specified, implementations MUST default to **strict mode**.
+- The selected mode MUST be exposed in the verification result.
 
 ---
 
+## 9. Replay and Nonce Semantics
 
+GEF-SPEC-1.0 uses **random nonce with ledger-local uniqueness** as its replay-resistance mechanism.
 
-\## 4. Genesis Record
+| Rule | Requirement |
+|---|---|
+| Presence | Every envelope MUST contain a `nonce` |
+| Randomness | MUST be cryptographically random |
+| Uniqueness | Duplicate nonce within ledger MUST fail with `DUPLICATE_NONCE` |
+| Scope | Ledger-local only — cross-ledger replay prevention is out of scope |
 
-
-
-A Ledger MUST begin with exactly one Genesis Record. The Genesis Record:
-
-
-
-\- MUST have `record\_type` of `"genesis"`
-
-\- MUST have `sequence` of `0`
-
-\- MUST have `causal\_hash` of `null`
-
-\- MUST include the signing public key in `payload.public\_key`
-
-\- MUST be self-signed with the corresponding private key
-
-
-
-All subsequent records in the Ledger MUST be verifiable against the
-
-public key declared in the Genesis Record.
-
-
-
-\### 4.1 Key Binding Rules
-
-
-
-\- A Ledger is bound to exactly one signing keypair, declared in the Genesis Record.
-
-\- All records in the Ledger MUST be signed with the private key corresponding to `payload.public\_key` in the Genesis Record.
-
-\- Multiple `subject\_id` values MAY share one Ledger and one keypair.
-
-\- `subject\_id` is a logical agent identifier and MUST NOT be assumed to equal any key fingerprint or cryptographic identity.
-
-\- If a key rotation is required, a new Ledger MUST be created with a new Genesis Record per Section 4.3.
-
-
-
-\### 4.2 Genesis Self-Signature
-
-
-
-The Genesis Record is self-signed. Before trusting `payload.public\_key`, a verifier MUST:
-
-
-
-1\. Construct the Execution Envelope of the Genesis Record per Section 5.
-
-2\. Verify the Genesis Record's Ed25519 signature using `payload.public\_key`.
-
-3\. Reject the Ledger if verification fails.
-
-
-
-An unverified Genesis Record MUST NOT be used as a trust anchor. This prevents substitution of an attacker-controlled public key via a malicious Genesis Record.
-
-
-
-\### 4.3 Key Rotation
-
-
-
-When key rotation is required, a new Ledger MUST be created with a new Genesis Record. The final record of the previous Ledger MUST be a tombstone. The new Genesis Record payload SHOULD include the previous Ledger's final Execution Envelope hash as a cross-reference. Rotation ceremony details are deferred to v1.1 after production validation.
-
-
+> Replay protection in GEF-SPEC-1.0 is best-effort within a single file, not a global guarantee. Stronger replay models (subject-scoped monotonic nonces) are defined in GEF-SPEC-v1.1.
 
 ---
 
+## 10. Security Properties
 
+Assuming private keys remain secret and the verification procedure is followed:
 
-\## 5. Canonicalisation
+**GuardClaw provides:**
 
+| Property | Description |
+|---|---|
+| **Tamper detection** | Any modification to signed fields, sequence, or chain structure is detectable |
+| **Order integrity** | Reordering, inserting, or dropping entries breaks sequence and/or hash chain |
+| **Deletion detection** | Truncation or removal of entries changes the chain head and/or sequence |
+| **Authenticity** | Entries are bound to an Ed25519 keypair; signatures prove origin at the key level |
+| **Offline verification** | Requires only the ledger file and the relevant public key |
 
+**Explicitly out of scope:**
 
-The Execution Envelope is the canonical byte sequence over which the Ed25519 signature is computed.
-
-
-
-\### 5.1 Procedure
-
-
-
-The Execution Envelope MUST be produced by applying the JSON Canonicalization Scheme (JCS) as defined in RFC 8785 to the Action Record object with the `signature` field removed.
-
-
-
-Implementations MUST use a conforming JCS library. Implementations MUST NOT implement custom JSON canonicalization. The resulting UTF-8 byte sequence is the Execution Envelope.
-
-
-
-\### 5.2 Rationale
-
-
-
-JCS resolves Unicode normalisation, character escaping, and numeric serialisation ambiguities that arise across language runtimes and JSON parsers. Mandating RFC 8785 ensures cross-language, cross-implementation verification correctness without implementer error.
-
-
+| Non-guarantee | Notes |
+|---|---|
+| Durable replay protection | Across processes or systems |
+| Key compromise resistance | Private key security is the caller's responsibility |
+| Trusted timestamps | Use RFC 3161 externally if required |
+| Canonical ledger consensus | No BFT or distributed agreement |
+| Confidentiality | GEF is about integrity, not encryption |
+| Key rotation | Not supported in GEF-SPEC-1.0; defined in GEF-SPEC-v1.1 |
 
 ---
 
+## 11. Versioning
 
+| Version | Description |
+|---|---|
+| **GEF-SPEC-1.0** | First stable specification of the GuardClaw Evidence Format |
+| **1.x** | Minor revisions MAY add fields in a backward-compatible way |
+| **2.0+** | Major revisions MAY introduce breaking changes; documented as new specs |
 
-\## 6. Content Commitment Mode
-
-
-
-When `content\_mode` is `"hash-only"`, sensitive payload fields MUST be replaced with their SHA-256 digest prior to signing.
-
-
-
-\### 6.1 Procedure
-
-
-
-1\. Identify fields in `payload` that contain sensitive content.
-
-2\. For each such field, replace the value with:
-
-
-
-```json
-
-{
-
-  "commitment": "<sha256-hex-of-original-utf8-value>",
-
-  "algorithm":  "sha256"
-
-}
-
-```
-
-
-
-3\. Set `content\_mode` to `"hash-only"`.
-
-4\. Compute signature over the redacted record as normal.
-
-
-
-\### 6.2 Properties
-
-
-
-\- The signature remains valid and verifiable.
-
-\- The original content cannot be reconstructed from the commitment.
-
-\- A verifier can confirm that a known value matches a commitment without storing the original.
-
-\- This mode satisfies data minimisation requirements under GDPR, HIPAA, and India DPDP Act 2023.
-
-
+Ledger entries MUST include `gef_version` so verifiers can select the appropriate validation rules.
 
 ---
 
+## 12. Design Philosophy
 
-
-\## 7. Signature Computation
-
-
-
-GuardClaw MUST use Ed25519 as defined in RFC 8032.
-
-
-
-\### 7.1 Signing Procedure
-
-
-
-1\. Construct the Execution Envelope per Section 5.
-
-2\. Sign the Execution Envelope bytes using the subject's Ed25519 private key.
-
-3\. Encode the 64-byte signature as base64url with no padding, per RFC 4648 §5.
-
-4\. Set the `signature` field to this value.
-
-
-
-The signature MUST be computed before control returns to the caller of the action API. Signing after the action result has been returned to the caller violates the non-repudiation guarantee defined in Section 2.
-
-
-
-\### 7.2 Key Requirements
-
-
-
-\- Each subject SHOULD have a dedicated Ed25519 keypair.
-
-\- Private keys MUST NOT be stored in the Ledger.
-
-\- In Ghost Mode (ephemeral operation), keys MAY be generated at session start and discarded at session end. Verification of ephemeral-key ledgers requires the public key to have been recorded in the Genesis Record.
-
-\- In Strict Mode (production operation), private keys SHOULD be stored in an HSM or KMS.
-
-
+| Principle | Description |
+|---|---|
+| **Explicit guarantees** | List exactly what is guaranteed and what is not |
+| **Loud failure over silent corruption** | Any deviation from the spec fails verification clearly and early |
+| **Verifiability over convenience** | Append-only, canonicalization, and signatures are prioritized over ease of mutation |
+| **Narrow, correct guarantees over broad promises** | GuardClaw is an integrity layer, not a full security stack |
 
 ---
 
-
-
-\## 8. Chain Invariant
-
-
-
-\### 8.1 Definition
-
-
-
-For any record `R\[n]` where `n > 0`:
-
-
-
-```
-
-R\[n].causal\_hash == SHA-256( ExecutionEnvelope( R\[n-1] ) )
-
-```
-
-
-
-This invariant binds each record to its predecessor, forming a tamper-evident chain.
-
-
-
-\### 8.2 Properties
-
-
-
-\- Modifying any record in the chain invalidates all subsequent
-
-  `causal\_hash` values.
-
-\- The chain can be verified in O(n) time with O(1) space.
-
-\- Chain verification is independent of signature verification;
-
-  both MUST pass.
-
-
-
-\### 8.3 Concurrency Constraint
-
-
-
-GEF v1.0 defines a strictly linear chain. Ledger appends MUST be sequential. Implementations supporting concurrent agent execution MUST serialise record appends through a single writer before signing.
-
-
-
-Concurrent execution patterns that require multiple simultaneous causal parents (Directed Acyclic Graph structures) are not supported in GEF v1.0. Support for DAG-structured evidence chains is deferred to a future version.
-
-
-
----
-
-
-
-\## 9. Replay-Bound Invariant
-
-
-
-\### 9.1 Definition
-
-
-
-For any two records `R\[a]` and `R\[b]` with the same `subject\_id`, where `R\[a]` was observed before `R\[b]`:
-
-
-
-```
-
-integer(R\[b].nonce) > integer(R\[a].nonce)
-
-```
-
-
-
-Nonce values MUST be compared as integers.
-
-A verifier MUST reject any record where the integer value of nonce is not strictly greater than the last verified nonce for that `subject\_id`.
-
-
-
-Gaps in nonce values are permitted and MUST NOT cause verification failure. Contiguity is not required.
-
-
-
-\### 9.2 Rationale
-
-
-
-Monotonic ordering without contiguity requirement provides replay protection while surviving agent restarts, concurrent execution, crash recovery, and multi-process deployments. Strict +1 enforcement would produce operationally brittle implementations without strengthening the replay guarantee.
-
-
-
-Coordination of nonce uniqueness across distributed processes is an implementation responsibility. Implementations MUST document their nonce coordination strategy.
-
-
-
----
-
-
-
-\## 10. Verification Procedure
-
-
-
-A conforming verifier MUST execute the following steps in order. Failure at any step MUST result in rejection of the Ledger.
-
-
-
-```
-
-1\. PARSE    — Deserialise each record. Reject malformed JSON.
-
-
-
-2\. GENESIS  — Confirm record is type "genesis" with
-
-               sequence=0 and causal\_hash=null.
-
-               Extract candidate public key from
-
-               payload.public\_key.
-
-               Verify the Genesis Record's Ed25519 signature
-
-               using this candidate public key.
-
-               If signature verification fails, REJECT.
-
-               Only after successful verification, accept
-
-               payload.public\_key as the trust anchor for
-
-               all subsequent records.
-
-
-
-3\. SEQUENCE — For each record\[n], confirm sequence == n.
-
-
-
-4\. CHAIN    — For each record\[n] where n > 0, confirm:
-
-               record\[n].causal\_hash ==
-
-               SHA-256(ExecutionEnvelope(record\[n-1]))
-
-
-
-5\. NONCE    — For each record, confirm integer(nonce) is
-
-               strictly greater than the last verified nonce
-
-               for that subject\_id. Gaps are permitted.
-
-
-
-6\. SIGN     — For each record, recompute ExecutionEnvelope
-
-               per Section 5 (RFC 8785), verify Ed25519
-
-               signature against the public key from the
-
-               Genesis Record.
-
-
-
-7\. ACCEPT   — If all steps pass, the Ledger is VALID.
-
-```
-
-
-
-A verifier MAY report per-step results for diagnostic purposes. A verifier MUST NOT report a Ledger as VALID unless all seven steps pass.
-
-
-
----
-
-
-
-\## 11. Cryptographic Primitives
-
-
-
-All cryptographic operations in GEF v1.0 use the following algorithms. Implementations MUST NOT substitute alternative algorithms without defining a new `gef\_version`.
-
-
-
-| Primitive        | Algorithm | Reference   |
-
-|------------------|-----------|-------------|
-
-| Hash function    | SHA-256   | FIPS 180-4  |
-
-| Signatures       | Ed25519   | RFC 8032    |
-
-| Encoding         | Base64url | RFC 4648 §5 |
-
-| Canonicalisation | JCS       | RFC 8785    |
-
-| Random source    | CSPRNG    | OS-provided |
-
-
-
----
-
-
-
-\## 12. Security Considerations
-
-
-
-\### 12.1 Signing at Execution Time
-
-
-
-Signatures MUST be computed before the action result is returned to the caller. Signing after result delivery creates a window in which the action description can be altered. This is the primary architectural distinction between GEF and session-close attestation models.
-
-
-
-\### 12.2 Threat: Log Fabrication
-
-
-
-An agent that fabricates log entries after the fact cannot produce valid signatures without the private key. If a compromised agent attempts to rewrite its history, signature verification will fail for all fabricated records.
-
-
-
-\### 12.3 Threat: Replay Attack
-
-
-
-A captured valid record cannot be replayed into a different Ledger or position due to the Replay-Bound Invariant (Section 9) and the Causal Hash binding (Section 8).
-
-
-
-\### 12.4 Threat: Key Compromise
-
-
-
-If a signing key is compromised, an adversary can produce valid-appearing records. Key compromise does not retroactively invalidate previously signed records. Implementations SHOULD rotate keys per Section 4.3 and SHOULD anchor ledger state to an external timestamping authority before performing rotation.
-
-
-
-\### 12.5 Threat: Clock Manipulation
-
-
-
-System-generated `timestamp\_utc` values reflect operator-asserted time. An adversary with system access may manipulate the system clock to generate records with false timestamps. GEF signatures do not cryptographically bind records to external wall-clock time.
-
-
-
-For legal or regulatory contexts where authoritative timestamps are required, implementations SHOULD submit periodic Ledger state hashes to a trusted timestamping authority (TSA) as defined in RFC 3161. Without TSA anchoring, `timestamp\_utc` values prove relative ordering within the Ledger only, not authoritative wall-clock time.
-
-
-
-\### 12.6 Threat: Tail Truncation
-
-
-
-GEF v1.0 provides tamper evidence for the records present within a Ledger. It does not prevent a malicious operator from truncating the Ledger by deleting records from the end of the chain. A truncated Ledger passes all seven verification steps against its remaining records; truncation is not detectable by a verifier operating on the Ledger alone.
-
-
-
-Mitigation: To prove Ledger completeness at a specific point in time, implementations SHOULD periodically publish the chain head hash (SHA-256 of the latest Execution Envelope) to an external transparency log or trusted timestamping service. This produces external evidence of how many records existed at a given time and makes tail truncation detectable by comparison.
-
-
-
-Resistance to tail truncation via external anchoring is a Level 4 property outside the scope of GEF v1.0.
-
-
-
-\### 12.7 Out of Scope
-
-
-
-GEF does not address: network transport security, access control to Ledger storage, or the correctness of agent behaviour. GEF provides evidence of what was recorded. It does not provide evidence of what was not recorded.
-
-
-
----
-
-
-
-\## 13. Versioning
-
-
-
-\- The `gef\_version` field identifies the spec version that governs the record.
-
-\- This document defines `gef\_version: "1.0"`.
-
-\- Future versions MUST increment the version string.
-
-\- A verifier encountering an unknown `gef\_version` SHOULD warn and MAY reject.
-
-\- The core signing and chain invariants defined in this version are considered stable. Breaking changes require a major version increment.
-
-
-
----
-
-
-
-\## 14. Reserved Fields
-
-
-
-The following field names are reserved for future GEF versions and MUST NOT be used for application-defined extensions:
-
-
-
-`gef\_extensions`, `gef\_proof`, `gef\_anchor`, `gef\_policy`, `gef\_root`
-
-
-
-Application-defined extensions MUST use a reverse-domain prefix in
-
-field names (e.g. `com.example.custom\_field`).
-
-
-
----
-
-
-
-\## 15. IANA Considerations
-
-
-
-This document has no IANA actions.
-
-
-
-Future versions of this specification may request registration of:
-
-
-
-\- Media type: `application/gef+json`
-
-\- URI scheme: `gef://`
-
-
-
----
-
-
-
-\## 16. Normative References
-
-
-
-```
-
-\[RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate Requirement Levels", BCP 14, RFC 2119, March 1997.
-
-           https://www.rfc-editor.org/rfc/rfc2119
-
-
-
-\[RFC8032]  Josefsson, S. and I. Liusvaara, "Edwards-Curve Digital Signature Algorithm (EdDSA)", RFC 8032, January 2017.
-
-           https://www.rfc-editor.org/rfc/rfc8032
-
-
-
-\[RFC4648]  Josefsson, S., "The Base16, Base32, and Base64 Data Encodings", RFC 4648, October 2006.
-
-           https://www.rfc-editor.org/rfc/rfc4648
-
-
-
-\[RFC8785]  Rundgren, A., Jordan, B., and S. Erdtman, "JSON Canonicalization Scheme (JCS)", RFC 8785, June 2020.
-
-           https://www.rfc-editor.org/rfc/rfc8785
-
-
-
-\[FIPS180]  National Institute of Standards and Technology, "Secure Hash Standard (SHS)", FIPS PUB 180-4, August 2015.
-
-           https://doi.org/10.6028/NIST.FIPS.180-4
-
-```
-
-
-
----
-
-
-
-\## 17. Informative References
-
-
-
-```
-
-\[RFC6962]  Laurie, B., Langley, A., and E. Kasper, "Certificate Transparency", RFC 6962, June 2013.
-
-           https://www.rfc-editor.org/rfc/rfc6962
-
-
-
-\[RFC3161]  Adams, C., et al., "Internet X.509 Public Key Infrastructure Time-Stamp Protocol (TSP)", RFC 3161, August 2001.
-
-           https://www.rfc-editor.org/rfc/rfc3161
-
-
-
-\[GDPR]     European Parliament, "General Data Protection Regulation", Regulation (EU) 2016/679, April 2016.
-
-
-
-\[DPDP]     Government of India, "Digital Personal Data Protection Act", Act No. 22 of 2023, August 2023.
-
-```
-
-
-
----
-
-
-
-\## 18. Acknowledgments
-
-
-
-This specification builds upon cryptographic primitives and design patterns established by the Certificate Transparency (RFC 6962), Edwards-Curve Digital Signature Algorithm (RFC 8032), and JSON Canonicalization Scheme (RFC 8785) communities. The replay-bound evidence model, per-action signing requirement, and Genesis self-signature trust establishment are original contributions of the GuardClaw project.
-
-
-
----
-
-
-
-\## Appendix A — Minimal Conformance Checklist
-
-
-
-An implementation claiming GEF v1.0 conformance MUST:
-
-
-
-\- \[ ] Produce records matching the schema in Section 3
-
-\- \[ ] Begin every Ledger with a Genesis Record per Section 4
-
-\- \[ ] Verify Genesis self-signature before trusting public key per Section 4.2
-
-\- \[ ] Apply JCS canonicalisation per RFC 8785 and Section 5 using a conforming library
-
-\- \[ ] Sign every record with Ed25519 before returning any result
-
-\- \[ ] Use monotonically increasing nonces per subject per Section 9
-
-\- \[ ] Serialise concurrent appends sequentially per Section 8.3
-
-\- \[ ] Pass all seven verification steps in Section 10
-
-\- \[ ] Use only the cryptographic primitives listed in Section 11
-
-
-
----
-
-
-
-\## Appendix B — Example Action Record
-
-
-
-```json
-
-{
-
-  "gef\_version":    "1.0",
-
-  "record\_id":      "a3f2c1d4-e5b6-7890-abcd-ef1234567890",
-
-  "record\_type":    "tool\_call",
-
-  "subject\_id":     "agent-prod-001",
-
-  "ledger\_id":      "b4e3d2c1-f6a7-8901-bcde-f01234567891",
-
-  "sequence":       3,
-
-  "timestamp\_utc":  "2026-02-23T16:30:00.000Z",
-
-  "causal\_hash":    "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-
-  "nonce":          "3",
-
-  "payload": {
-
-    "action\_type":  "file.delete",
-
-    "parameters": {
-
-      "path": "/var/logs/archive/2025-01.log"
-
-    },
-
-    "target":       "/var/logs/archive/2025-01.log"
-
-  },
-
-  "content\_mode":   "raw",
-
-  "schema\_version": "1.0",
-
-  "signature":      "base64url-encoded-ed25519-signature-here"
-
-}
-
-```
-
-
-
----
-
-
-
-\## Appendix C — Example Verification Output
-
-
-
-```
-
-GuardClaw Ledger Verification
-
-──────────────────────────────────────────
-
-Ledger:   b4e3d2c1-f6a7-8901-bcde-f01234567891
-
-Subject:  agent-prod-001
-
-Records:  12
-
-
-
-Step 1 — Parse         ✓ 12 records parsed
-
-Step 2 — Genesis       ✓ Genesis record valid, self-signature verified
-
-Step 3 — Sequence      ✓ Sequence 0–11 contiguous
-
-Step 4 — Chain         ✓ Causal hash chain intact
-
-Step 5 — Nonce         ✓ Replay-bound invariant satisfied
-
-Step 6 — Signatures    ✓ All 12 signatures verified
-
-Step 7 — Accept        ✓ Ledger is VALID
-
-
-
-──────────────────────────────────────────
-
-Result: VALID
-
-```
-
+> GuardClaw proves what was recorded.
+> It does **not** decide what should have happened.
+> It gives you cryptographic truth about agent execution, so policy, governance, and law have something solid to stand on.

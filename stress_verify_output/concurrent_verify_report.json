@@ -1,0 +1,116 @@
+{
+  "entry_count": 10000,
+  "ledger_path": "C:\\Users\\rohan\\OneDrive\\Desktop\\GuardClaw New\\stress_verify_output\\concurrent_1m.gef",
+  "ledger_size_bytes": 5777778,
+  "build_seconds": 3.366639899999882,
+  "warmup": {
+    "ok": true,
+    "seconds": 2.5224578999998357,
+    "summary": {
+      "total_entries": 10000,
+      "chain_valid": true,
+      "valid_signatures": 10000,
+      "invalid_signatures": 0,
+      "first_timestamp": "2026-04-04T20:36:40.094Z",
+      "last_timestamp": "2026-04-04T20:36:43.459Z",
+      "gef_version": "1.0",
+      "violation_count": 0
+    }
+  },
+  "concurrency": {
+    "threads": 8,
+    "rounds_per_thread": 5,
+    "total_runs": 40,
+    "ok_runs": 40,
+    "bad_runs": 0,
+    "wall_seconds": 261.9063772000002,
+    "avg_verify_seconds": 50.115352130000005,
+    "min_verify_seconds": 34.84670950000009,
+    "max_verify_seconds": 61.432711100000006,
+    "peak_tracemalloc_bytes": 132028590,
+    "current_tracemalloc_bytes": 481264
+  },
+  "sample_failures": [],
+  "sample_successes": [
+    {
+      "thread": 2,
+      "round": 0,
+      "ok": true,
+      "seconds": 43.493517599999905,
+      "summary": {
+        "total_entries": 10000,
+        "chain_valid": true,
+        "valid_signatures": 10000,
+        "invalid_signatures": 0,
+        "first_timestamp": "2026-04-04T20:36:40.094Z",
+        "last_timestamp": "2026-04-04T20:36:43.459Z",
+        "gef_version": "1.0",
+        "violation_count": 0
+      }
+    },
+    {
+      "thread": 7,
+      "round": 0,
+      "ok": true,
+      "seconds": 45.71003020000012,
+      "summary": {
+        "total_entries": 10000,
+        "chain_valid": true,
+        "valid_signatures": 10000,
+        "invalid_signatures": 0,
+        "first_timestamp": "2026-04-04T20:36:40.094Z",
+        "last_timestamp": "2026-04-04T20:36:43.459Z",
+        "gef_version": "1.0",
+        "violation_count": 0
+      }
+    },
+    {
+      "thread": 4,
+      "round": 0,
+      "ok": true,
+      "seconds": 50.543803100000105,
+      "summary": {
+        "total_entries": 10000,
+        "chain_valid": true,
+        "valid_signatures": 10000,
+        "invalid_signatures": 0,
+        "first_timestamp": "2026-04-04T20:36:40.094Z",
+        "last_timestamp": "2026-04-04T20:36:43.459Z",
+        "gef_version": "1.0",
+        "violation_count": 0
+      }
+    },
+    {
+      "thread": 3,
+      "round": 0,
+      "ok": true,
+      "seconds": 51.286529599999994,
+      "summary": {
+        "total_entries": 10000,
+        "chain_valid": true,
+        "valid_signatures": 10000,
+        "invalid_signatures": 0,
+        "first_timestamp": "2026-04-04T20:36:40.094Z",
+        "last_timestamp": "2026-04-04T20:36:43.459Z",
+        "gef_version": "1.0",
+        "violation_count": 0
+      }
+    },
+    {
+      "thread": 0,
+      "round": 0,
+      "ok": true,
+      "seconds": 52.04496280000012,
+      "summary": {
+        "total_entries": 10000,
+        "chain_valid": true,
+        "valid_signatures": 10000,
+        "invalid_signatures": 0,
+        "first_timestamp": "2026-04-04T20:36:40.094Z",
+        "last_timestamp": "2026-04-04T20:36:43.459Z",
+        "gef_version": "1.0",
+        "violation_count": 0
+      }
+    }
+  ]
+}

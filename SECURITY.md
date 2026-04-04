@@ -1,10 +1,10 @@
-\# Security Policy
+﻿\# Security Policy
 
 
 
 \*\*Status:\*\* Stable  
 
-\*\*Version:\*\* v0.6.1 
+\*\*Version:\*\* v0.7.0 
 
 \*\*Protocol:\*\* GEF-SPEC-1.0
 
@@ -22,11 +22,11 @@
 
 |---|---|
 
-| 0.5.x | ✅ Supported — current stable |
+| 0.5.x | âœ… Supported â€” current stable |
 
-| 0.2.x | ⚠️ Deprecated — upgrade to 0.5.x |
+| 0.2.x | âš ï¸ Deprecated â€” upgrade to 0.5.x |
 
-| 0.1.x | ❌ Unsupported — no GEF protocol |
+| 0.1.x | âŒ Unsupported â€” no GEF protocol |
 
 
 
@@ -70,7 +70,7 @@ Please include:
 
 
 
-GuardClaw v0.6.1 uses:
+GuardClaw v0.7.0 uses:
 
 
 
@@ -78,19 +78,19 @@ GuardClaw v0.6.1 uses:
 
 |---|---|---|
 
-| Signatures | Ed25519 (pure) | RFC 8032 §5.1 |
+| Signatures | Ed25519 (pure) | RFC 8032 Â§5.1 |
 
 | Chain hashing | SHA-256 | FIPS 180-4 |
 
 | Canonicalization | JCS | RFC 8785 |
 
-| Encoding | Base64url (no padding) | RFC 4648 §5 |
+| Encoding | Base64url (no padding) | RFC 4648 Â§5 |
 
 | Nonce | 128-bit CSPRNG | OS-provided |
 
 
 
-Ed25519ph and Ed25519ctx (RFC 8032 §5.2, §5.3) are explicitly
+Ed25519ph and Ed25519ctx (RFC 8032 Â§5.2, Â§5.3) are explicitly
 
 excluded. Only pure Ed25519 is used.
 
@@ -116,11 +116,11 @@ GuardClaw's cryptographic guarantees are defined in:
 
 
 
-\- \*\*SPEC.md Section 11\*\* — Security Considerations
+\- \*\*SPEC.md Section 11\*\* â€” Security Considerations
 
-\- \*\*SPEC.md Section 10\*\* — 33 Formal Invariants
+\- \*\*SPEC.md Section 10\*\* â€” 33 Formal Invariants
 
-\- \*\*THREAT\_MODEL.md\*\* — Threat classification by scenario
+\- \*\*THREAT\_MODEL.md\*\* â€” Threat classification by scenario
 
 
 
@@ -152,17 +152,17 @@ Known limitations (by design):
 
 |---|---|
 
-| Development and testing | ✅ |
+| Development and testing | âœ… |
 
-| Internal AI agent audit trails | ✅ |
+| Internal AI agent audit trails | âœ… |
 
-| Research and prototyping | ✅ |
+| Research and prototyping | âœ… |
 
-| Compliance-grade audit (Level 3) | ✅ with appropriate key management |
+| Compliance-grade audit (Level 3) | âœ… with appropriate key management |
 
-| Regulatory-grade with timestamp proof | ⚠️ Requires Level 4 (RFC 3161 anchoring — future) |
+| Regulatory-grade with timestamp proof | âš ï¸ Requires Level 4 (RFC 3161 anchoring â€” future) |
 
-| Financial settlement, critical infrastructure | ⚠️ Evaluate key management and anchoring requirements |
+| Financial settlement, critical infrastructure | âš ï¸ Evaluate key management and anchoring requirements |
 
 
 
@@ -174,7 +174,8 @@ Known limitations (by design):
 
 
 
-GuardClaw v0.6.1 implements GEF-SPEC-1.0 — a stable, formally specified cryptographic accountability protocol. It is a foundational accountability layer, not a complete security system. Use additional controls where your threat model requires them.
+GuardClaw v0.7.0 implements GEF-SPEC-1.0 â€” a stable, formally specified cryptographic accountability protocol. It is a foundational accountability layer, not a complete security system. Use additional controls where your threat model requires them.
+
 
 
 

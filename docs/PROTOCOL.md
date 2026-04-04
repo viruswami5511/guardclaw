@@ -1,157 +1,372 @@
-# GuardClaw Protocol Specification (v0.1.4)
+# GuardClaw Evidence Format — GEF-SPEC-1.0
 
-Status: Alpha
+Status: Stable (Ledger Protocol)  
+Applies to: GuardClaw v0.7.x
+
+GEF-SPEC-1.0 defines a **deterministic, verifiable execution history format for autonomous systems**.
 
 ---
 
 ## 1. Purpose
 
-GuardClaw is a cryptographic evidence ledger for autonomous agent accountability.
+GuardClaw is a **cryptographic execution ledger** for autonomous agent accountability.
 
-It provides:
+GEF-SPEC-1.0 defines:
 
-- Signed event emission
-- Deterministic canonical serialization
-- Ledger-local nonce-based replay detection
-- Tamper-evident verification
-- Offline verifiability
+- The envelope schema (`ExecutionEnvelope`)
+- Canonical serialization (RFC 8785 JCS)
+- Hash-chain construction
+- Signature model (Ed25519)
+- Verification rules and failure conditions
 
-GuardClaw v0.1.4 does NOT implement:
+GuardClaw is an **evidence substrate**:
 
-- Policy enforcement
-- Authorization engines
-- Settlement logic
-- Distributed consensus
-- Hash chaining
-- Durable replay memory
-
-GuardClaw is an accountability substrate.
+- It proves what was recorded.
+- It does **not** enforce policy, block actions, or provide consensus.
 
 ---
 
-## 2. Event Schema
+## 2. Scope and Non-Goals
 
-An ObservationEvent represents a single recorded action.
+GEF-SPEC-1.0 guarantees:
 
-```python
+- Tamper detection (payload, metadata, structure)
+- Order integrity (sequence + hash chain)
+- Deletion detection (gaps and truncations)
+- Signature authenticity (Ed25519)
+- Offline verifiability from a ledger file + public key
+
+GEF-SPEC-1.0 does **not** provide:
+
+- Authorization / policy engines  
+- Settlement or business logic  
+- Distributed consensus or BFT  
+- Trusted timestamps (e.g. RFC 3161)  
+- Key management or rotation schemes  
+- Cross-system replay prevention
+
+GuardClaw is designed to be embedded into systems that provide those layers.
+
+---
+
+## 3. Envelope Schema
+
+The atomic unit of the ledger is the **ExecutionEnvelope**.
+
+Each envelope is a JSON object with the following fields:
+
+```jsonc
 {
-    "event_id": str,
-    "timestamp": str,          # ISO 8601 UTC
-    "event_type": str,         # intent | execution | result | failure
-    "subject_id": str,
-    "action": str,
-    "nonce": str,              # REQUIRED, 32 hex characters
-    "correlation_id": str | None,
-    "metadata": dict | None
+  "gef_version": "1.0",
+  "record_id": "c2e0e2c4-5bb1-4c8f-8e51-7d37a1d2f5a1",
+  "record_type": "execution",          // genesis | intent | execution | result | failure
+  "agent_id": "agent-001",
+  "signer_public_key": "base64url-ed25519-pubkey",
+  "sequence": 41,
+  "nonce": "b8f7da0e6c9246f5a37bf1f1d1c5b435",
+  "timestamp": "2025-12-01T12:34:56.789012Z",
+  "causal_hash": "000000...0000",      // genesis sentinel or previous entry hash
+  "payload": {
+    // application-defined JSON payload
+  },
+  "signature": "base64url-ed25519-signature"
 }
+```
 
+### 3.1 Field Requirements
 
+- `gef_version`  
+  - MUST equal `"1.0"` for GEF-SPEC-1.0.
 
-## Field Requirements-
+- `record_id`  
+  - MUST be globally unique.  
+  - UUIDv4 is STRONGLY RECOMMENDED.
 
-event_id MUST be unique within a ledger.
-timestamp MUST be ISO 8601 UTC.
-event_type MUST be one of: intent | execution | result | failure.
-nonce MUST exist.
-nonce MUST be exactly 32 hexadecimal characters.
-nonce MUST be cryptographically random.
-Missing or invalid nonce results in validation failure.
+- `record_type`  
+  - MUST be one of: `genesis`, `intent`, `execution`, `result`, `failure`.  
+  - Implementations MAY restrict supported record types but MUST reject unknown values.
 
+- `agent_id`  
+  - MUST be a non-empty string identifying the logical agent.
 
-## 3. Canonical Serialization
+- `signer_public_key`  
+  - MUST be a base64url-encoded Ed25519 public key.
 
-GuardClaw uses deterministic canonical JSON encoding:
-UTF-8 encoding
-Sorted dictionary keys
-No insignificant whitespace
-Canonical encoding ensures identical payloads produce identical hashes.
-The nonce is part of the canonical payload and protected by signature.
+- `sequence`  
+  - MUST be an integer ≥ 0.  
+  - MUST start at 0 for the genesis record.  
+  - MUST increase monotonically by +1 for each subsequent entry.
 
+- `nonce`  
+  - MUST exist.  
+  - MUST be cryptographically random.  
+  - SHOULD provide at least 128 bits of entropy (e.g., 32+ hex characters).  
 
-## 4. Signing Model
+- `timestamp`  
+  - MUST be an ISO-8601 UTC timestamp with timezone `Z`.
 
-Algorithm: Ed25519
-Payload: Canonical JSON bytes of ObservationEvent
-Signature format: Hex string
-Any modification invalidates the signature.
+- `causal_hash`  
+  - For the genesis entry (`sequence == 0`):  
+    - MUST be equal to `GENESIS_HASH` (see §6.1).  
+  - For all subsequent entries:  
+    - MUST equal the SHA-256 digest of the **canonical signing surface** of the previous entry.
 
+- `payload`  
+  - MUST be valid JSON.  
+  - Semantics are application-defined and out of scope.
 
-## 5. Replay Detection
+- `signature`  
+  - MUST be a base64url-encoded Ed25519 detached signature over the signing surface.
 
-Replay detection in v0.1.4 is nonce-based.
+Missing or malformed fields MUST cause verification failure.
 
-*Rules:*
-* Nonce uniqueness is scoped per subject_id.
-* Duplicate nonce for the same subject is considered replay.
-* Replay detection occurs during verification.
-* Replay tracking is memory-local and not durable across restarts.
+---
 
-## 6. Ledger Structure
+## 4. Canonical Serialization
 
-JSONL files
-Append-only writes
-Each line is a SignedObservation
-No hash chaining
-No Merkle tree
-No sequence numbers
+GEF-SPEC-1.0 uses deterministic canonical JSON encoding based on **RFC 8785 JCS** for the signing surface.
 
-Ledger integrity relies solely on signature verification.
-File deletion is not detectable in v0.1.4.
+The signing surface consists of the entire envelope object **excluding the `signature` field**.  All other fields (`gef_version`, `record_id`, `record_type`, `agent_id`, `signer_public_key`, `sequence`, `nonce`, `timestamp`, `causal_hash`, `payload`) MUST be included in the canonicalized structure.
 
+### 4.1 Canonicalization Rules
 
-## 7. Verification Model
+- UTF-8 encoding  
+- Sorted JSON object keys  
+- No insignificant whitespace  
+- No NaN/Infinity; only JSON-valid numbers  
+- String representation is stable for identical logical values  
 
-Verification consists of:
-Schema validation
-Nonce validation
-Canonical JSON reconstruction
-Signature verification
-Ledger-local replay detection
+Given identical input envelopes, compliant implementations MUST produce identical canonical byte representations, hashes, and signature verification results.
 
-Verification requires only:
+This determinism is what makes GEF a protocol, not just a library convention.
 
-Ledger file
-Public key
+---
 
-Offline verification is supported.
+## 5. Signing Model
 
+### 5.1 Algorithm
 
-## 8. Security Properties
+- Ed25519 (RFC 8032) MUST be used.
+- `signer_public_key` MUST be the public key corresponding to the private key used.
 
-If private keys remain secure:
+### 5.2 Signing Surface
 
-Signed events cannot be modified without detection
-Events are cryptographically attributable
-Ledger-local replay is detectable
-Verification fails loudly on tampering
+The signing surface is a canonical JSON object that **excludes** the `signature` field:
 
-Non-Guarantees:
+```jsonc
+{
+  "gef_version": "...",
+  "record_id": "...",
+  "record_type": "...",
+  "agent_id": "...",
+  "signer_public_key": "...",
+  "sequence": 41,
+  "nonce": "...",
+  "timestamp": "...",
+  "causal_hash": "...",
+  "payload": { ... }
+}
+```
 
-Durable replay protection
-Hash chaining
-Distributed consensus
-Trusted timestamps
-Key rotation
-File deletion detection
-Cross-system replay prevention
+Signing procedure:
 
+1. Construct the signing surface by removing `signature` from the envelope.  
+2. Canonicalize via RFC 8785 JCS.  
+3. Compute Ed25519 signature over the canonical bytes.  
+4. Encode the signature as base64url and store it in `signature`.
 
-## 9. Versioning
+Any modification to any signed field changes the canonical bytes and invalidates the signature.
 
-0.x.x — Experimental
-1.x.x — Stable protocol guarantees
+---
 
-Breaking protocol changes may occur before v1.0.
+## 6. Hash Chain Construction
 
+The ledger is a JSONL file (`.gef`), append-only, one envelope per line.
 
-## 10. Design Philosophy
+### 6.1 Genesis Record
 
-GuardClaw prioritizes:
+For the genesis envelope (`sequence == 0`):
 
-Explicit guarantees
-Loud failure over silent corruption
-Verifiability over convenience
-Narrow, correct guarantees over broad promises
+- `record_type` MUST be `genesis`.  
+- `causal_hash` MUST equal `GENESIS_HASH`.  
+- All other invariants (schema, signature, canonicalization) MUST hold.
 
-GuardClaw proves what was recorded.
-It does not attempt to prevent actions.
+**GENESIS_HASH** is an implementation-defined constant representing the expected `causal_hash` value of the genesis entry. It MUST be a fixed, known value within the implementation (e.g., 32 bytes of zero). All verifiers MUST apply the same `GENESIS_HASH` definition to ensure consistency.
+
+### 6.2 Non-Genesis Records
+
+For each envelope with `sequence == N` where `N > 0`:
+
+- `sequence MUST equal the zero-based index of the entry within the ledger.`.  
+- `causal_hash` MUST equal:
+
+```text
+SHA256( canonical_signing_surface(sequence == N-1) )
+```
+
+Where `canonical_signing_surface(sequence == N-1)` is the canonical JCS bytes
+of the previous envelope’s signing surface.
+
+### 6.3 Chain Head
+
+The **chain head hash** is defined as:
+
+```text
+chain_head_hash = SHA256( canonical_signing_surface(last_entry) )
+chain_head_sequence = last_entry.sequence
+```
+
+This pair (`chain_head_hash`, `chain_head_sequence`) commits to the entire ledger history and can be externalized (e.g., for anchoring in Git, RFC 3161 timestamping, or other systems).
+
+---
+
+## 7. Ledger Structure
+
+- Physical format: **JSONL** (`.gef` extension RECOMMENDED).  
+- Each non-empty line MUST contain exactly one `ExecutionEnvelope` JSON object.  
+- The ledger is logically **append-only**.  
+- No in-band deletion markers are defined in GEF-SPEC-1.0.
+
+**Implications:**
+
+- Truncation, deletion, or insertion of lines will break sequence and/or hash-chain invariants.  
+- Verification detects such manipulations as chain violations.
+
+Lines MAY be terminated by a newline character (`\n`).
+
+Empty lines SHOULD be ignored by verifiers and MUST NOT affect verification results.
+
+---
+
+## 8. Verification Model
+
+Verification is performed by a **Replay Engine** over a ledger file.
+
+### 8.1 Inputs
+
+- Ledger file (`.gef`)  
+- Expected `signer_public_key` (optional, depending on verifier policy)
+
+### 8.2 Check Set and Order
+
+If signature verification fails for any entry, the ledger MUST be considered invalid. Implementations SHOULD report this as `INVALID_SIGNATURE` or equivalent.
+
+The following checks MUST be performed. Implementations MAY reorder checks as long as all invariants are enforced before declaring the ledger valid.
+
+For each non-empty line:
+
+1. **JSON decode**  
+2. **Schema validation** against the envelope schema  
+3. **Signature presence** (`signature` MUST exist)  
+4. **Signature encoding** (base64url)  
+5. **Signature crypto** (Ed25519 verification)  
+6. **Genesis check** (first entry MUST be `genesis` and use `GENESIS_HASH`)  
+7. **Sequence continuity** (`sequence` MUST be contiguous from 0)  
+8. **GEF version consistency** (`gef_version` MUST match across ledger)  
+9. **Causal hash** (`causal_hash` MUST match hash of previous signing surface)  
+10. **Nonce checks** (MUST exist; duplicate nonce is a violation)
+
+Any failure produces a **VerificationSummary** containing at least:
+
+- `total_entries`  
+- `chain_valid` (bool)  
+- `failure_sequence` (line/sequence context)  
+- `failure_type`  
+- `failure_detail`  
+
+`failure_type` SHOULD be drawn from a well-defined set of invariant violations (e.g., `MALFORMED_JSON`, `SCHEMA_VIOLATION`, `INVALID_SIGNATURE`, `SEQUENCE_GAP`, `CAUSAL_HASH_MISMATCH`, `DUPLICATE_NONCE`, `GENESIS_MISSING`). The exact enumeration is implementation-defined but MUST be stable within a
+given implementation version.
+
+### 8.3 Modes
+
+- **Strict mode**  
+  - Fails on the first violation; the ledger is considered invalid.
+
+- **Recovery mode**  
+  - Verifies entries up to the last valid prefix.  
+  - Returns partial integrity information (trusted prefix, integrity boundary hash, etc.).
+
+Details of the `VerificationSummary` structure are implementation-specific but MUST expose:
+
+- Whether the full chain is valid  
+- How many entries were processed  
+- Where and why verification failed (if it did)
+
+---
+
+## 9. Replay and Nonce Semantics
+
+GEF-SPEC-1.0 uses **nonce presence and uniqueness checks** as a basic replay-resistance
+mechanism within a ledger.
+
+Rules:
+
+- Every envelope MUST contain a `nonce`.  
+- If the same nonce appears more than once within a ledger, verification MUST flag it as a chain violation
+  (e.g., `DUPLICATE_NONCE`).  
+- Nonce scope is **ledger-local**. Cross-ledger replay prevention is out of scope.
+
+Replay protection is **best-effort within a single file**, not a global guarantee.
+
+---
+
+## 10. Security Properties
+
+Assuming private keys remain secret and the verification procedure is followed:
+
+GuardClaw provides:
+
+- **Tamper detection**  
+  Any modification to signed fields, sequence, or chain structure is detectable.
+
+- **Order integrity**  
+  Reordering, inserting, or dropping entries breaks sequence and/or hash chain.
+
+- **Deletion detection**  
+  Truncation or removal of entries changes the chain head and/or sequence.
+
+- **Authenticity**  
+  Entries are bound to an Ed25519 keypair; signatures prove origin at the key level.
+
+- **Offline verification**  
+  Verification requires only the ledger file and the relevant public key.
+
+Non-guarantees (explicitly out of scope):
+
+- Durable replay protection across processes or systems  
+- Key compromise resistance  
+- Trusted timestamps  
+- Consensus on “the” canonical ledger  
+- Confidentiality (GEF is about integrity, not encryption)
+
+---
+
+## 11. Versioning
+
+- **GEF-SPEC-1.0** is the first stable specification of the GuardClaw Evidence Format.  
+- Minor revisions (1.x) MAY add fields in a backward-compatible way with clear migration rules.  
+- Major revisions (2.0+) MAY introduce breaking changes and will be documented as new specs.
+
+Ledger entries MUST include `gef_version` so verifiers can select the appropriate validation rules.
+
+---
+
+## 12. Design Philosophy
+
+GuardClaw follows these principles:
+
+- **Explicit guarantees**  
+  List exactly what is guaranteed and what is not.
+
+- **Loud failure over silent corruption**  
+  Any deviation from the spec fails verification clearly and early.
+
+- **Verifiability over convenience**  
+  Append-only, canonicalization, and signatures are prioritized over ease of mutation.
+
+- **Narrow, correct guarantees over broad promises**  
+  GuardClaw is an integrity layer, not a full security stack.
+
+GuardClaw proves what was recorded.  
+It does **not** decide what should have happened.  
+It gives you cryptographic truth about agent execution, so policy, governance, and law have something solid to stand on.

@@ -79,3 +79,7 @@ ledger/
 keys/
 agent-*/
 .test_ledger
+
+stress_verify_output/*.gef
+stress_verify_output/key.pem
+stress_verify_output/*.tmp_delete
