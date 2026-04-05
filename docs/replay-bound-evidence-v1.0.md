@@ -1,4 +1,4 @@
-﻿\# Replay-Bound Evidence
+\# Replay-Bound Evidence
 
 \## Cryptographic Accountability for Autonomous AI Systems
 
@@ -8,7 +8,7 @@
 **DOI:** https://zenodo.org/records/18712808  
 **Published:** 2026-02-20  
 **Archived:** https://web.archive.org/web/20260220125746/https://github.com/viruswami5511/guardclaw/blob/master/docs/replay-bound-evidence-v1.0.md 
-**Reference implementation:** GuardClaw v0.7.0 â€” [GEF-SPEC-1.0](https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md)
+**Reference implementation:** GuardClaw v0.7.1 — [GEF-SPEC-1.0](https://github.com/viruswami5511/guardclaw/blob/master/docs/GEF-SPEC-v1.0.md)
 
 ---
 
@@ -30,7 +30,7 @@ Database records may be altered. Timestamps may be manipulated. Events may be du
 
 
 
-This paper defines \*\*Replay-Bound Evidence\*\* â€” a minimal framework for producing cryptographically verifiable records of AI agent actions.
+This paper defines \*\*Replay-Bound Evidence\*\* — a minimal framework for producing cryptographically verifiable records of AI agent actions.
 
 
 
@@ -106,7 +106,7 @@ When incidents occur, organizations must answer:
 
 
 
-Traditional logging systems were designed for observability and debugging â€” not adversarial verification.
+Traditional logging systems were designed for observability and debugging — not adversarial verification.
 
 
 
@@ -256,11 +256,11 @@ Each recorded event \*\*MUST\*\* be cryptographically signed.
 
 This provides:
 
-\- \*\*Integrity\*\* â€” modification invalidates the signature
+\- \*\*Integrity\*\* — modification invalidates the signature
 
-\- \*\*Attribution\*\* â€” event bound to signing identity
+\- \*\*Attribution\*\* — event bound to signing identity
 
-\- \*\*Non-repudiation\*\* â€” within limits of key security
+\- \*\*Non-repudiation\*\* — within limits of key security
 
 
 
@@ -446,7 +446,7 @@ The schema above reflects GuardClaw v0.1.x semantics. Implementations may vary, 
 **Note (added 2026-02-27):**
 The schema above reflects the conceptual model from v1.0 of this paper.
 The GEF-SPEC-1.0 formal implementation uses aligned field names: `record_id`, `agent_id`, `record_type`, `payload`. See 
-[GEF-SPEC-1.0 Section 5](https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md)
+[GEF-SPEC-1.0 Section 5](https://github.com/viruswami5511/guardclaw/blob/master/docs/GEF-SPEC-v1.0.md)
 for the normative field definitions.
 
 
@@ -544,7 +544,7 @@ Security boundaries must be explicitly understood.
 
 
 
-System-generated timestamps (Level 2â€“3):
+System-generated timestamps (Level 2–3):
 
 \- Provide relative ordering
 
@@ -566,7 +566,7 @@ Recent projects such as Ungate Wukong (built on EigenLayer restaking) position d
 These approaches provide on-chain reputation and economic consensus but require significant infrastructure: staking mechanisms, validator networks, and consensus protocols.
 
 Replay-Bound Evidence operates at a lower infrastructure layer. It requires only a key pair and deterministic verification logic. It is complementary to
-blockchain-based approaches: RBE provides the tamper-evident local event record that can optionally be anchored to external systems at Level 3â€“4 maturity.
+blockchain-based approaches: RBE provides the tamper-evident local event record that can optionally be anchored to external systems at Level 3–4 maturity.
 
 
 Replay-Bound Evidence does not require distributed consensus.
@@ -641,31 +641,31 @@ Replay-Bound Evidence differs by:
 
 
 
-\### Level 0 â€” Basic Logging
+\### Level 0 — Basic Logging
 
 Mutable records. No cryptographic binding.
 
 
 
-\### Level 1 â€” Signed Events
+\### Level 1 — Signed Events
 
 Events cryptographically signed. No replay protection.
 
 
 
-\### Level 2 â€” Replay-Bound Evidence
+\### Level 2 — Replay-Bound Evidence
 
 Signed events with subject-scoped replay detection and offline verification.
 
 
 
-\### Level 3 â€” Chained Integrity
+\### Level 3 — Chained Integrity
 
 Hash chaining or Merkle structures, gap detection, file deletion detection.
 
 
 
-\### Level 4 â€” Anchored Provenance
+\### Level 4 — Anchored Provenance
 
 External timestamp authorities, key rotation audit trails, genesis identity anchoring, cross-system verifiability.
 
@@ -767,7 +767,7 @@ Representative Ed25519 cryptographic benchmarks (e.g., PyNaCl and Python cryptog
 
 \- \*\*Verification\*\* (cryptographic operation only): ~0.02 ms
 
-\- \*\*Storage overhead\*\*: ~400â€“800 bytes per signed event
+\- \*\*Storage overhead\*\*: ~400–800 bytes per signed event
 
 
 
@@ -947,7 +947,7 @@ Replay-Bound Evidence guarantees cryptographic intent, not ground truth.
 
 
 
-\## Appendix A â€” Reference Implementation
+\## Appendix A — Reference Implementation
 
 
 
@@ -960,7 +960,7 @@ Evidence Maturity Model, which includes all Level 2 properties plus:
 - Canonical JSON serialization (RFC 8785 JCS)
 - Offline CLI verification
 
-**Level 3 (Chained Integrity) â€” added in v0.7.0:**
+**Level 3 (Chained Integrity) — added in v0.7.0:**
 - SHA-256 causal hash chaining (every entry linked to predecessor)
 - Sequence gap detection
 - Insertion and deletion detection
@@ -968,12 +968,12 @@ Evidence Maturity Model, which includes all Level 2 properties plus:
 - Cross-language proof (Python + Go byte-identical verification)
 
 **Protocol specification:** GEF-SPEC-1.0
-https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md
+https://github.com/viruswami5511/guardclaw/blob/master/docs/GEF-SPEC-v1.0.md
 
 
 GuardClaw is a reference implementation of the Replay-Bound Evidence framework.
 
-Protocol specification: https://github.com/viruswami5511/guardclaw/blob/master/SPEC.md
+Protocol specification: https://github.com/viruswami5511/guardclaw/blob/master/docs/GEF-SPEC-v1.0.md
 
 
 ---

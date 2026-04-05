@@ -1,5 +1,5 @@
-﻿# GuardClaw Execution Framework (GEF)
-# Protocol Specification â€” Version 1.0
+# GuardClaw Execution Framework (GEF)
+# Protocol Specification Version 1.0
 
 ---
 
@@ -11,7 +11,7 @@ Authors       : GuardClaw Protocol Team
 Repository    : https://github.com/viruswami5511/guardclaw
 PyPI          : https://pypi.org/project/guardclaw
 License       : Apache License 2.0
-Supersedes    : (none â€” initial specification)
+Supersedes    : (none — initial specification)
 ```
 
 ---
@@ -28,7 +28,7 @@ This document is the authoritative specification of the GEF protocol. It defines
 
 ## Status of This Document
 
-This document specifies **GEF Protocol Version 1.0**, which is the first stable release of the specification. It is published alongside the reference implementation (`guardclaw` v0.7.0, Python) and a verified cross-language proof demonstrating byte-identical behavior between the Python reference implementation and an independent Go implementation.
+This document specifies **GEF Protocol Version 1.0**, which is the first stable release of the specification. It is published alongside the reference implementation (`guardclaw` v0.7.1, Python) and a verified cross-language proof demonstrating byte-identical behavior between the Python reference implementation and an independent Go implementation.
 
 The specification is stable. Breaking changes require a new major version (`GEF-SPEC-2.0`) and a corresponding migration path. Additive changes (new record types, new optional fields) may be published as minor amendments without incrementing the major version.
 
@@ -46,9 +46,9 @@ The specification is stable. Breaking changes require a new major version (`GEF-
   - [5.2 Field Encoding Rules](#52-field-encoding-rules)
   - [5.3 Record Types](#53-record-types)
 - [6. The Three Protocol Contracts](#6-the-three-protocol-contracts)
-  - [6.1 Contract I â€” Canonical Serialization (RFC 8785 JCS)](#61-contract-i--canonical-serialization-rfc-8785-jcs)
-  - [6.2 Contract II â€” Causal Chain Integrity (SHA-256)](#62-contract-ii--causal-chain-integrity-sha-256)
-  - [6.3 Contract III â€” Signature Authenticity (Ed25519)](#63-contract-iii--signature-authenticity-ed25519)
+  - [6.1 Contract I — Canonical Serialization (RFC 8785 JCS)](#61-contract-i--canonical-serialization-rfc-8785-jcs)
+  - [6.2 Contract II — Causal Chain Integrity (SHA-256)](#62-contract-ii--causal-chain-integrity-sha-256)
+  - [6.3 Contract III — Signature Authenticity (Ed25519)](#63-contract-iii--signature-authenticity-ed25519)
 - [7. Signing and Verification Procedure](#7-signing-and-verification-procedure)
   - [7.1 Constructing the Signing Surface](#71-constructing-the-signing-surface)
   - [7.2 Signing an Envelope](#72-signing-an-envelope)
@@ -63,12 +63,12 @@ The specification is stable. Breaking changes require a new major version (`GEF-
   - [9.2 Append Semantics](#92-append-semantics)
   - [9.3 Crash Consistency](#93-crash-consistency)
 - [10. Formal Invariants](#10-formal-invariants)
-  - [10.1 Signing Invariants (INV-01 â€“ INV-08)](#101-signing-invariants-inv-01--inv-08)
-  - [10.2 Chain Invariants (INV-09 â€“ INV-14)](#102-chain-invariants-inv-09--inv-14)
-  - [10.3 Schema Invariants (INV-15 â€“ INV-22)](#103-schema-invariants-inv-15--inv-22)
-  - [10.4 Replay Invariants (INV-23 â€“ INV-28)](#104-replay-invariants-inv-23--inv-28)
-  - [10.5 Nonce Invariants (INV-29 â€“ INV-30)](#105-nonce-invariants-inv-29--inv-30)
-  - [10.6 Cross-Language Invariants (INV-31 â€“ INV-33)](#106-cross-language-invariants-inv-31--inv-33)
+  - [10.1 Signing Invariants (INV-01 – INV-08)](#101-signing-invariants-inv-01--inv-08)
+  - [10.2 Chain Invariants (INV-09 – INV-14)](#102-chain-invariants-inv-09--inv-14)
+  - [10.3 Schema Invariants (INV-15 – INV-22)](#103-schema-invariants-inv-15--inv-22)
+  - [10.4 Replay Invariants (INV-23 – INV-28)](#104-replay-invariants-inv-23--inv-28)
+  - [10.5 Nonce Invariants (INV-29 – INV-30)](#105-nonce-invariants-inv-29--inv-30)
+  - [10.6 Cross-Language Invariants (INV-31 – INV-33)](#106-cross-language-invariants-inv-31--inv-33)
 - [11. Security Considerations](#11-security-considerations)
   - [11.1 Threat Model](#111-threat-model)
   - [11.2 Cryptographic Choices and Rationale](#112-cryptographic-choices-and-rationale)
@@ -82,8 +82,8 @@ The specification is stable. Breaking changes require a new major version (`GEF-
 - [13. Implementation Guidance](#13-implementation-guidance)
 - [14. Versioning](#14-versioning)
   - [14.1 Version Identifier](#141-version-identifier)
-  - [14.2 Major Version â€” Breaking Changes](#142-major-version--breaking-changes)
-  - [14.3 Minor Version â€” Additive Changes](#143-minor-version--additive-changes)
+  - [14.2 Major Version — Breaking Changes](#142-major-version--breaking-changes)
+  - [14.3 Minor Version — Additive Changes](#143-minor-version--additive-changes)
   - [14.4 Ledger Homogeneity](#144-ledger-homogeneity)
   - [14.5 Forward Compatibility for Record Types](#145-forward-compatibility-for-record-types)
 - [15. Compliance Declaration](#15-compliance-declaration)
@@ -105,11 +105,11 @@ The specification is stable. Breaking changes require a new major version (`GEF-
 
 ## 1. Introduction
 
-AI agent systems â€” systems that perceive, decide, and act autonomously â€” introduce a category of accountability problem that conventional logging does not address. A log entry asserts that something happened. It does not prove it. Logs can be amended, truncated, or silently rewritten. The agent that produced the log and the system that stores it are typically the same party, creating an unverifiable self-report.
+AI agent systems — systems that perceive, decide, and act autonomously — introduce a category of accountability problem that conventional logging does not address. A log entry asserts that something happened. It does not prove it. Logs can be amended, truncated, or silently rewritten. The agent that produced the log and the system that stores it are typically the same party, creating an unverifiable self-report.
 
 GEF addresses this problem at the protocol level. Every action taken by a GEF-compliant agent is recorded as a cryptographically signed envelope. The agent's Ed25519 private key signs a canonical representation of the record. Every subsequent record includes the SHA-256 hash of its predecessor's canonical representation, forming an immutable causal chain. No record in the chain can be altered, inserted, or deleted without invalidating every record that follows it.
 
-The result is not a log. It is an **evidence ledger** â€” a chain of cryptographic proof that an agent did what it claims to have done, in the order it claims to have done it, without post-hoc modification.
+The result is not a log. It is an **evidence ledger** — a chain of cryptographic proof that an agent did what it claims to have done, in the order it claims to have done it, without post-hoc modification.
 
 ### 1.1 Why a Protocol, Not a Library
 
@@ -126,7 +126,7 @@ GEF is defined as a protocol so that:
 ## 2. Design Goals
 
 **G-1   Tamper Evidence.**
-Any modification to any field of any envelope â€” including metadata fields such as `timestamp`, `sequence`, or `agent_id` â€” must break the cryptographic proof. A verifier must be able to detect the modification without access to the original author.
+Any modification to any field of any envelope — including metadata fields such as `timestamp`, `sequence`, or `agent_id` — must break the cryptographic proof. A verifier must be able to detect the modification without access to the original author.
 
 **G-2   Causal Chain Integrity.**
 The order of events must be cryptographically enforced. An entry cannot be inserted before, between, or after any other entry without detection. Reordering the ledger must be detectable.
@@ -135,7 +135,7 @@ The order of events must be cryptographically enforced. An entry cannot be inser
 The protocol must be implementable in any language that has access to Ed25519 cryptography, SHA-256, and RFC 8785 JSON Canonicalization. No language-specific serialization format, no binary encoding, no platform dependency.
 
 **G-4   Auditability Without Keys.**
-A verifier needs only the signer's public key to verify a complete ledger. Private keys are never required for verification. Any third party with the public key â€” a regulator, an auditor, a counterparty â€” can independently verify the ledger.
+A verifier needs only the signer's public key to verify a complete ledger. Private keys are never required for verification. Any third party with the public key — a regulator, an auditor, a counterparty — can independently verify the ledger.
 
 **G-5   Append-Only Semantics.**
 The ledger is append-only by design. There is no update, no delete, no rewrite. The only valid operation on a ledger is appending a new entry.
@@ -165,7 +165,7 @@ The JSON object constructed from an envelope's fields for the purpose of computi
 The byte representation of the signing surface produced by applying RFC 8785 JSON Canonicalization Scheme (JCS). Canonical bytes are deterministic: identical inputs produce identical byte sequences on any conformant JCS implementation.
 
 **Causal hash.**
-The SHA-256 digest, encoded as a 64-character lowercase hex string, of the canonical bytes of the previous envelope's signing surface. The `causal_hash` stored in entry N is the hash of entry N-1's signing surface. Also referred to informally as "chain hash" â€” the two terms are synonymous in this specification. The field name `causal_hash` is normative.
+The SHA-256 digest, encoded as a 64-character lowercase hex string, of the canonical bytes of the previous envelope's signing surface. The `causal_hash` stored in entry N is the hash of entry N-1's signing surface. Also referred to informally as "chain hash" — the two terms are synonymous in this specification. The field name `causal_hash` is normative.
 
 **Genesis hash.**
 The sentinel `causal_hash` value for the first entry in a ledger:
@@ -244,7 +244,7 @@ The verifier requires no private keys, no shared secrets, no connection to the a
 
 ## 5. The Envelope
 
-A GEF envelope is a JSON object. When stored in the ledger, it is serialized as a single JSON line (JSONL). When signed or hashed, only the signing surface (Section 7.1) is used â€” not the full envelope JSON.
+A GEF envelope is a JSON object. When stored in the ledger, it is serialized as a single JSON line (JSONL). When signed or hashed, only the signing surface (Section 7.1) is used — not the full envelope JSON.
 
 ### 5.1 Field Definitions
 
@@ -312,7 +312,7 @@ The following record types are defined in GEF v1.0. A `record_type` value not in
 
 GEF's correctness depends on three contracts that every compliant implementation MUST fulfill. An implementation that fulfills all three will be byte-compatible with every other compliant implementation.
 
-### 6.1 Contract I â€” Canonical Serialization (RFC 8785 JCS)
+### 6.1 Contract I — Canonical Serialization (RFC 8785 JCS)
 
 **Every implementation MUST use RFC 8785 JSON Canonicalization Scheme (JCS) to produce canonical bytes from the signing surface.**
 
@@ -327,7 +327,7 @@ The canonical bytes of a given JSON object are identical on any conformant JCS i
 
 An implementation MUST NOT attempt to manually sort keys or construct canonical JSON. It MUST pass the signing surface object to a JCS-conformant library and use that library's output as canonical bytes.
 
-### 6.2 Contract II â€” Causal Chain Integrity (SHA-256)
+### 6.2 Contract II — Causal Chain Integrity (SHA-256)
 
 **The `causal_hash` of every entry (except the genesis entry) MUST be the SHA-256 digest of the canonical bytes of the previous entry's signing surface, encoded as 64 lowercase hexadecimal characters.**
 
@@ -345,7 +345,7 @@ causal_hash[0] = "00000000000000000000000000000000000000000000000000000000000000
 
 The chain hash is computed over the **signing surface**, not the full ledger JSON. This means the `signature` field of entry N-1 does **not** affect the `causal_hash` of entry N. Chain integrity and signature integrity are independently verifiable.
 
-### 6.3 Contract III â€” Signature Authenticity (Ed25519)
+### 6.3 Contract III — Signature Authenticity (Ed25519)
 
 **Every envelope's `signature` field MUST be the Ed25519 signature of the canonical bytes of the envelope's signing surface, produced using the private key corresponding to `signer_public_key`.**
 
@@ -388,7 +388,7 @@ The signing surface is a JSON object containing exactly the ten fields listed be
 }
 ```
 
-The signing surface MUST contain exactly these ten fields â€” no more, no fewer. Any implementation that adds, removes, or renames a field in the signing surface will produce different canonical bytes and will fail to interoperate with any other compliant implementation.
+The signing surface MUST contain exactly these ten fields — no more, no fewer. Any implementation that adds, removes, or renames a field in the signing surface will produce different canonical bytes and will fail to interoperate with any other compliant implementation.
 
 ### 7.2 Signing an Envelope
 
@@ -428,19 +428,19 @@ PROCEDURE VerifyLedger(ledger_path) -> ReplaySummary:
 
   FOR i, entry IN enumerate(entries):
 
-    // Phase 1 â€” Schema
+    // Phase 1 — Schema
     schema_errors = ValidateSchema(entry)
     IF schema_errors:
       violations.append(Violation("schema", i, schema_errors))
       CONTINUE   // cannot verify chain or sig for malformed entry
 
-    // Phase 1 â€” Sequence
+    // Phase 1 — Sequence
     expected_seq = i
     IF entry.sequence != expected_seq:
       violations.append(Violation("sequence_gap", i,
         expected=expected_seq, actual=entry.sequence))
 
-    // Phase 1 â€” Chain
+    // Phase 1 — Chain
     IF i == 0:
       expected_hash = GENESIS_HASH
     ELSE:
@@ -449,13 +449,13 @@ PROCEDURE VerifyLedger(ledger_path) -> ReplaySummary:
       violations.append(Violation("chain_break", i,
         expected=expected_hash, actual=entry.causal_hash))
 
-    // Phase 1 â€” Nonce uniqueness
+    // Phase 1 — Nonce uniqueness
     IF entry.nonce IN seen_nonces:
       violations.append(Violation("schema", i,
-        detail="Duplicate nonce â€” nonces MUST be unique per ledger"))
+        detail="Duplicate nonce — nonces MUST be unique per ledger"))
     seen_nonces.add(entry.nonce)
 
-    // Phase 2 â€” Signature
+    // Phase 2 — Signature
     IF NOT VerifySignature(entry):
       violations.append(Violation("invalid_signature", i))
 
@@ -469,7 +469,7 @@ PROCEDURE VerifyLedger(ledger_path) -> ReplaySummary:
     schema_valid     = not any(v.type == "schema" for v in violations),
   )
 ```
-The verifier authenticates cryptographic integrity only. It confirms that the ledger was produced by whoever holds the private key corresponding to `signer_public_key`. It does not verify the real-world identity of the key holder, nor does it validate the key against any external registry, certificate authority, or PKI system. External trust validation of `signer_public_key` â€” including key ownership, revocation status, and identity binding â€” is outside the scope of GEF and is the responsibility
+The verifier authenticates cryptographic integrity only. It confirms that the ledger was produced by whoever holds the private key corresponding to `signer_public_key`. It does not verify the real-world identity of the key holder, nor does it validate the key against any external registry, certificate authority, or PKI system. External trust validation of `signer_public_key` — including key ownership, revocation status, and identity binding — is outside the scope of GEF and is the responsibility
 of the application layer.
 
 ---
@@ -551,9 +551,9 @@ A verifier that detects evidence of rewriting (e.g., chain breaks in the middle 
 
 If the system crashes during an append:
 
-- **Scenario A â€” Crash before write completes.** The file remains valid up to the last fully written line. The partial line, if any, is invalid JSON and MUST be treated as a schema violation for that line only. All preceding entries remain verifiable.
+- **Scenario A — Crash before write completes.** The file remains valid up to the last fully written line. The partial line, if any, is invalid JSON and MUST be treated as a schema violation for that line only. All preceding entries remain verifiable.
 
-- **Scenario B â€” Crash after write, before fsync.** The entry may or may not be present depending on OS buffering. If it is absent, the ledger is valid up to the previous entry. If it is present and complete, it is a valid entry.
+- **Scenario B — Crash after write, before fsync.** The entry may or may not be present depending on OS buffering. If it is absent, the ledger is valid up to the previous entry. If it is present and complete, it is a valid entry.
 
 A verifier encountering a trailing partial line MUST:
 
@@ -569,7 +569,7 @@ A partial trailing line MUST NOT cause the verifier to report prior entries as i
 
 This section defines 33 invariants that a compliant implementation MUST satisfy. These invariants are the normative test surface: a test suite that demonstrates all 33 invariants pass on an implementation constitutes evidence of GEF compliance.
 
-### 10.1 Signing Invariants (INV-01 â€“ INV-08)
+### 10.1 Signing Invariants (INV-01 – INV-08)
 
 | ID | Invariant |
 |---|---|
@@ -582,7 +582,7 @@ This section defines 33 invariants that a compliant implementation MUST satisfy.
 | **INV-07** | Mutating the `sequence` field of a signed envelope MUST cause signature verification to return `False`. |
 | **INV-08** | Mutating the `gef_version` field of a signed envelope MUST cause signature verification to return `False`. |
 
-### 10.2 Chain Invariants (INV-09 â€“ INV-14)
+### 10.2 Chain Invariants (INV-09 – INV-14)
 
 | ID | Invariant |
 |---|---|
@@ -593,7 +593,7 @@ This section defines 33 invariants that a compliant implementation MUST satisfy.
 | **INV-13** | A chain of N signed envelopes where each entry was produced per the protocol MUST fully verify (no chain breaks, no signature failures) for any N â‰¥ 1. |
 | **INV-14** | Injecting a new entry between positions M and M+1 in an existing chain MUST produce a chain break violation at position M+1. |
 
-### 10.3 Schema Invariants (INV-15 â€“ INV-22)
+### 10.3 Schema Invariants (INV-15 – INV-22)
 
 | ID | Invariant |
 |---	|---|
@@ -606,7 +606,7 @@ This section defines 33 invariants that a compliant implementation MUST satisfy.
 | **INV-21** | A `payload` that is not a JSON object (e.g., an array, null, string, or number) MUST be rejected at construction time. |
 | **INV-22** | A `sequence` that is a negative integer MUST be rejected at construction time. |
 
-### 10.4 Replay Invariants (INV-23 â€“ INV-28)
+### 10.4 Replay Invariants (INV-23 – INV-28)
 
 | ID | Invariant |
 |---|---|
@@ -617,14 +617,14 @@ This section defines 33 invariants that a compliant implementation MUST satisfy.
 | **INV-27** | The replay engine MUST detect an envelope with a missing required field and report it as a `schema` violation. |
 | **INV-28** | The `ReplaySummary` produced by the replay engine MUST accurately count total entries, total violations, and violations by type. |
 
-### 10.5 Nonce Invariants (INV-29 â€“ INV-30)
+### 10.5 Nonce Invariants (INV-29 – INV-30)
 
 | ID | Invariant |
 |---|---|
 | **INV-29** | Two envelopes within the same ledger MUST NOT share the same nonce value. The producer MUST generate nonces from a cryptographically secure random number generator to ensure uniqueness. The replay engine MUST actively scan for duplicate nonces during verification and MUST report a `schema` violation for any nonce that appears more than once in a ledger. |
 | **INV-30** | Every nonce produced by the implementation MUST be exactly 32 lowercase hexadecimal characters. |
 
-### 10.6 Cross-Language Invariants (INV-31 â€“ INV-33)
+### 10.6 Cross-Language Invariants (INV-31 – INV-33)
 
 | ID | Invariant |
 |---|---|
@@ -655,9 +655,9 @@ GEF is designed to protect against the following threats:
 
 See Section 16 for detailed rationale. Summary:
 
-- **Ed25519** â€” 128-bit security level, deterministic signing (no nonce randomness required), compact 64-byte signatures, resistance to side-channel attacks via constant-time implementations.
-- **SHA-256** â€” 128-bit collision resistance, standardized by NIST (FIPS 180-4), universally available in all languages and platforms.
-- **RFC 8785 JCS** â€” Deterministic JSON canonicalization without requiring binary encoding, preserving human-readability.
+- **Ed25519** — 128-bit security level, deterministic signing (no nonce randomness required), compact 64-byte signatures, resistance to side-channel attacks via constant-time implementations.
+- **SHA-256** — 128-bit collision resistance, standardized by NIST (FIPS 180-4), universally available in all languages and platforms.
+- **RFC 8785 JCS** — Deterministic JSON canonicalization without requiring binary encoding, preserving human-readability.
 
 ### 11.3 Attack Surface Analysis
 
@@ -673,16 +673,16 @@ The attack surface of a GEF ledger is limited to:
 
 ### 11.4 Known Limitations
 
-**Limitation 1 â€” No key revocation in the ledger format.**
+**Limitation 1 — No key revocation in the ledger format.**
 GEF v1.0 does not define a mechanism for revoking or rotating signing keys within a ledger. A key rotation produces a new ledger or requires an application-layer convention for the `agent_id` and `signer_public_key` transition.
 
-**Limitation 2 â€” No multi-party signing.**
+**Limitation 2 — No multi-party signing.**
 GEF v1.0 assumes a single signing key per ledger. Multi-party or threshold signing is not defined.
 
-**Limitation 3 â€” No built-in payload schema.**
+**Limitation 3 — No built-in payload schema.**
 GEF does not validate the contents of the `payload` object. Applications are responsible for defining and validating their own payload schemas.
 
-**Limitation 4 â€” Private key re-signing attack.**
+**Limitation 4 — Private key re-signing attack.**
 An agent that holds its own private key can destroy its existing ledger and rebuild a new one from scratch with fabricated history. All entries in the new ledger will have valid signatures and a valid chain. This attack is undetectable from the ledger file alone. Ledger anchoring (Section 11.5) is the recommended mitigation.
 
 ### 11.5 Ledger Anchoring
@@ -693,7 +693,7 @@ The private key re-signing attack (Limitation 4 above) means that an agent holdi
 
 Recommended anchoring strategies, in order of assurance:
 
-**Level 1 â€” Periodic hash publication.**
+**Level 1 — Periodic hash publication.**
 At regular intervals (e.g., every 1,000 entries, or every hour), publish the following value to an append-only external system:
 
 ```
@@ -702,10 +702,10 @@ anchor_value = SHA-256(causal_hash_of_last_entry || sequence_number || timestamp
 
 Suitable external systems: a public transparency log, an immutable object store with write-once semantics, or a public blockchain.
 
-**Level 2 â€” RFC 3161 Timestamp Authority.**
+**Level 2 — RFC 3161 Timestamp Authority.**
 Submit the `anchor_value` to an RFC 3161-compliant Timestamp Authority (TSA). The TSA issues a signed timestamp token that cryptographically binds the anchor value to a wall-clock time, independently of the agent. This provides legally defensible timestamp evidence and is sufficient for most regulatory compliance requirements.
 
-**Level 3 â€” Public ledger anchoring.**
+**Level 3 — Public ledger anchoring.**
 Submit the `anchor_value` to a public blockchain or distributed ledger (e.g., Ethereum, Bitcoin via OP_RETURN). This provides maximum non-repudiation: the existence of a specific ledger state at a specific block height is publicly verifiable by anyone, forever, without trusting any single party.
 
 **GEF v1.0 does not mandate anchoring.** It is a RECOMMENDED practice for deployments where any of the following conditions hold:
@@ -749,7 +749,7 @@ The following test vectors are normative. A compliant implementation MUST produc
 
 ---
 
-**Test Vector 1 â€” Genesis Entry Signing Surface**
+**Test Vector 1 — Genesis Entry Signing Surface**
 
 Input signing surface (before JCS):
 
@@ -782,13 +782,13 @@ SHA-256 of the above canonical bytes, encoded as 64 lowercase hex
 
 ---
 
-**Test Vector 2 â€” Chain Hash Excludes Signature**
+**Test Vector 2 — Chain Hash Excludes Signature**
 
-Given two envelopes E0 and E1, the `causal_hash` of E1 MUST be identical regardless of the value of E0's `signature` field, provided all other fields of E0 are unchanged. An implementation MUST verify this property: producing E0 with two different signatures (e.g., by resigning with the same key â€” which will produce the same deterministic signature â€” or for cross-language testing, by substituting a placeholder) MUST NOT change the `causal_hash` of E1.
+Given two envelopes E0 and E1, the `causal_hash` of E1 MUST be identical regardless of the value of E0's `signature` field, provided all other fields of E0 are unchanged. An implementation MUST verify this property: producing E0 with two different signatures (e.g., by resigning with the same key — which will produce the same deterministic signature — or for cross-language testing, by substituting a placeholder) MUST NOT change the `causal_hash` of E1.
 
 ---
 
-**Test Vector 3 â€” Negative Tests**
+**Test Vector 3 — Negative Tests**
 
 For each of the following mutations applied to a signed envelope, verification MUST return `False`:
 
@@ -802,8 +802,8 @@ For each of the following mutations applied to a signed envelope, verification M
 
 | Language | Repository | Verified Version | Status |
 |---|---|---|---|
-| Python (reference) | https://github.com/viruswami5511/guardclaw | v0.7.0 | Stable |
-| Go | https://github.com/viruswami5511/guardclaw/tree/master/cross_lang_proof | v0.7.0 | Verified (proof bundle) |
+| Python (reference) | https://github.com/viruswami5511/guardclaw | v0.7.1 | Stable |
+| Go | https://github.com/viruswami5511/guardclaw/tree/master/cross_lang_proof | v0.7.1 | Verified (proof bundle) |
 
 The cross-language proof bundle (Python + Go, byte-identical verification) is publicly available at:  `https://github.com/viruswami5511/guardclaw/tree/master/cross_lang_proof`
 
@@ -854,32 +854,32 @@ The security of the entire ledger depends on the secrecy of the private key. In 
 
 The GEF protocol version is carried in the `gef_version` field of every envelope and in the specification document identifier (`GEF-SPEC-X.Y`). The current version is `"1.0"`.
 
-### 14.2 Major Version â€” Breaking Changes
+### 14.2 Major Version — Breaking Changes
 
 A major version increment (1.0 â†’ 2.0) is REQUIRED whenever any of the following changes are made:
 
-**Signing surface changes â€” always major:**
+**Signing surface changes — always major:**
 - Adding, removing, or renaming any field in the signing surface.
 - Changing the type or encoding of any signing surface field.
 - Changing the set of required fields from eleven to any other number.
 
-**Algorithm changes â€” always major:**
+**Algorithm changes — always major:**
 - Replacing RFC 8785 JCS with any other canonicalization scheme.
 - Replacing SHA-256 with any other hash algorithm for chain hashing.
 - Replacing Ed25519 with any other signature algorithm.
 - Changing the signature encoding (e.g., base64url â†’ hex).
 
-**Chain semantics changes â€” always major:**
+**Chain semantics changes — always major:**
 - Changing the genesis hash sentinel value.
 - Changing the definition of `causal_hash` (e.g., hashing the full envelope instead of the signing surface).
 
-**Verification behavior changes â€” always major:**
+**Verification behavior changes — always major:**
 - Changing the definition of a chain violation.
 - Changing required violation types.
 
 > A verifier for GEF v1.0 MUST NOT attempt to verify a GEF v2.0 ledger. It MUST emit an error and halt.
 
-### 14.3 Minor Version â€” Additive Changes
+### 14.3 Minor Version — Additive Changes
 
 A minor version increment (1.0 â†’ 1.1) is used for additive, non-breaking changes. The following changes are minor:
 
@@ -888,7 +888,7 @@ A minor version increment (1.0 â†’ 1.1) is used for additive, non-breaking 
 - Clarifications to existing normative text that do not change behavior.
 - New appendices, new guidance, new non-normative sections.
 
-The following are **NOT** minor changes â€” they are major:
+The following are **NOT** minor changes — they are major:
 - Adding any field to the signing surface, even as optional.
 - Changing the encoding of any signing surface field.
 
@@ -905,7 +905,7 @@ When a new record type is added in a minor version (e.g., GEF v1.1 adds `"audit"
 
 | Actor | Rule |
 |---|---|
-| v1.0 **producer** | MUST NOT emit the new record type â€” it was not defined in v1.0. |
+| v1.0 **producer** | MUST NOT emit the new record type — it was not defined in v1.0. |
 | v1.0 **verifier** on a `gef_version: "1.0"` ledger | MUST treat an unknown `record_type` as a schema violation. |
 | v1.0 **verifier** on a `gef_version: "1.1"` ledger | SHOULD accept unknown record types as valid schema and emit a warning, not a violation. |
 | v1.1 **verifier** | MUST accept all record types defined up to and including v1.1. |
@@ -942,27 +942,27 @@ An implementation MAY declare GEF compliance by including the following statemen
 
 ### 16.1 Why a Chain Hash, Not a Merkle Tree
 
-Merkle trees provide efficient membership proofs but add significant implementation complexity. GEF's primary use case â€” verifying a sequential agent ledger from start to finish â€” does not require membership proofs. A linear hash chain is sufficient, simpler to implement correctly in any language, and produces a verifier that is easy to audit and reason about.
+Merkle trees provide efficient membership proofs but add significant implementation complexity. GEF's primary use case — verifying a sequential agent ledger from start to finish — does not require membership proofs. A linear hash chain is sufficient, simpler to implement correctly in any language, and produces a verifier that is easy to audit and reason about.
 
 ### 16.2 Why the Chain Hash Excludes the Signature
 
 The `causal_hash` of entry N is computed from the signing surface of entry N-1, which excludes entry N-1's `signature`. This is intentional.
 
-It means chain integrity and signature integrity are independently verifiable. A verifier can confirm the chain is intact even if signature verification is temporarily skipped. It also means the same payload produces the same chain hash regardless of which key signed it â€” useful when a ledger is handed off between signers during a key rotation.
+It means chain integrity and signature integrity are independently verifiable. A verifier can confirm the chain is intact even if signature verification is temporarily skipped. It also means the same payload produces the same chain hash regardless of which key signed it — useful when a ledger is handed off between signers during a key rotation.
 
 ### 16.3 Why Ed25519 and Not RSA or ECDSA (P-256)
 
-RSA signatures are 256â€“512 bytes at comparable security levels. Ed25519 signatures are 64 bytes. For a ledger with 1,000,000 entries, this represents a 192â€“448 MB difference in ledger size from signatures alone.
+RSA signatures are 256–512 bytes at comparable security levels. Ed25519 signatures are 64 bytes. For a ledger with 1,000,000 entries, this represents a 192–448 MB difference in ledger size from signatures alone.
 
-ECDSA (P-256) requires a random nonce per signature. A weak random number generator can leak the private key via nonce reuse â€” this is how the PlayStation 3 private key was extracted in 2010. Ed25519 uses a deterministic nonce derived from the private key and message; no random number generator is required for signing.
+ECDSA (P-256) requires a random nonce per signature. A weak random number generator can leak the private key via nonce reuse — this is how the PlayStation 3 private key was extracted in 2010. Ed25519 uses a deterministic nonce derived from the private key and message; no random number generator is required for signing.
 
 Ed25519's performance characteristics (~50,000 signatures/sec single-core) are well-matched to the GEF use case.
 
 ### 16.4 Why RFC 8785 JCS and Not Protocol Buffers or MessagePack
 
-GEF records are JSON. The protocol is designed to be readable by humans, inspectable with standard tools (`cat`, `jq`, any text editor), and storable in any system that accepts text files. Binary serialization formats (Protocol Buffers, MessagePack, CBOR) sacrifice readability for performance â€” an acceptable tradeoff in many protocols, but not in one whose primary purpose is accountability and auditability.
+GEF records are JSON. The protocol is designed to be readable by humans, inspectable with standard tools (`cat`, `jq`, any text editor), and storable in any system that accepts text files. Binary serialization formats (Protocol Buffers, MessagePack, CBOR) sacrifice readability for performance — an acceptable tradeoff in many protocols, but not in one whose primary purpose is accountability and auditability.
 
-RFC 8785 JCS provides canonical JSON â€” the benefits of a canonical binary format (deterministic byte sequence) without abandoning the human-readability of JSON.
+RFC 8785 JCS provides canonical JSON — the benefits of a canonical binary format (deterministic byte sequence) without abandoning the human-readability of JSON.
 
 ### 16.5 Why JSONL and Not a Database Format
 
@@ -976,7 +976,7 @@ A JSONL ledger file can be:
 - Committed to a Git repository.
 - Archived without a database server.
 
-A database format (SQLite, PostgreSQL) provides query performance and indexing at the cost of requiring a specific runtime to read the file. For an accountability ledger â€” a file that may need to be read years in the future by parties unfamiliar with the original system â€” a self-describing text format is the correct choice.
+A database format (SQLite, PostgreSQL) provides query performance and indexing at the cost of requiring a specific runtime to read the file. For an accountability ledger — a file that may need to be read years in the future by parties unfamiliar with the original system — a self-describing text format is the correct choice.
 
 ### 16.6 Why Ten Signing Fields and Not More
 
@@ -1109,13 +1109,13 @@ RFC 8785 JCS sorts JSON object keys by Unicode code point order of their UTF-8 e
 - `record_id` sorts before `record_type` because after the common prefix `record_`, the next character of `record_id` is `i` (0x69) and of `record_type` is `t` (0x74), and `i` < `t`.
 - `sequence` sorts before `signer_public_key` because `e` (0x65) < `i` (0x69) at the second character.
 
-> **This ordering is informative.** Implementations MUST NOT hard-code this order in their JSON construction â€” they MUST pass the object to a conformant JCS library and allow the library to sort.
+> **This ordering is informative.** Implementations MUST NOT hard-code this order in their JSON construction — they MUST pass the object to a conformant JCS library and allow the library to sort.
 
 ---
 
 ---
 
-*GEF Protocol Specification â€” Version 1.0*
+*GEF Protocol Specification — Version 1.0*
 *Â© 2026 GuardClaw*
 *Licensed under the Apache License, Version 2.0*
 *Repository: https://github.com/viruswami5511/guardclaw*

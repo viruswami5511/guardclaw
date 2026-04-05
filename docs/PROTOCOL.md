@@ -61,7 +61,7 @@ Each envelope is a JSON object with the following fields:
   "record_id": "c2e0e2c4-5bb1-4c8f-8e51-7d37a1d2f5a1",
   "record_type": "execution",          // genesis | intent | execution | result | failure
   "agent_id": "agent-001",
-  "signer_public_key": "base64url-ed25519-pubkey",
+  "signer_public_key": "64-hex-ed25519-pubkey",
   "sequence": 41,
   "nonce": "b8f7da0e6c9246f5a37bf1f1d1c5b435",
   "timestamp": "2025-12-01T12:34:56.789012Z",
@@ -90,10 +90,10 @@ Each envelope is a JSON object with the following fields:
   - MUST be a non-empty string identifying the logical agent.
 
 - `signer_public_key`  
-  - MUST be a base64url-encoded Ed25519 public key.
+  - MUST be exactly 64 lowercase hexadecimal characters (32‑byte Ed25519 public key).
 
 - `sequence`  
-  - MUST be an integer ≥ 0.  
+  - MUST be an integer >= 0.  
   - MUST start at 0 for the genesis record.  
   - MUST increase monotonically by +1 for each subsequent entry.
 
@@ -107,7 +107,7 @@ Each envelope is a JSON object with the following fields:
 
 - `causal_hash`  
   - For the genesis entry (`sequence == 0`):  
-    - MUST be equal to `GENESIS_HASH` (see §6.1).  
+    - MUST be equal to `GENESIS_HASH` (see Â§6.1).  
   - For all subsequent entries:  
     - MUST equal the SHA-256 digest of the **canonical signing surface** of the previous entry.
 
@@ -191,7 +191,13 @@ For the genesis envelope (`sequence == 0`):
 - `causal_hash` MUST equal `GENESIS_HASH`.  
 - All other invariants (schema, signature, canonicalization) MUST hold.
 
-**GENESIS_HASH** is an implementation-defined constant representing the expected `causal_hash` value of the genesis entry. It MUST be a fixed, known value within the implementation (e.g., 32 bytes of zero). All verifiers MUST apply the same `GENESIS_HASH` definition to ensure consistency.
+**GENESIS_HASH** is defined as 32 zero bytes, encoded as a 64-character lowercase hex string:
+
+```text
+GENESIS_HASH = "0000000000000000000000000000000000000000000000000000000000000000"
+```
+
+All implementations MUST use this exact value for the genesis `causal_hash`.
 
 ### 6.2 Non-Genesis Records
 
@@ -336,7 +342,7 @@ Non-guarantees (explicitly out of scope):
 - Durable replay protection across processes or systems  
 - Key compromise resistance  
 - Trusted timestamps  
-- Consensus on “the” canonical ledger  
+- Consensus on â€œtheâ€ canonical ledger  
 - Confidentiality (GEF is about integrity, not encryption)
 
 ---

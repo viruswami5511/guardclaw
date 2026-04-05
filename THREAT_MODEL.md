@@ -1,7 +1,7 @@
 ﻿# GuardClaw Threat Model
 
 **Status:** Stable  
-**Version:** v0.7.0
+**Version:** v0.7.1
 **Protocol:** GEF-SPEC-1.0  
 **Audience:** Security reviewers, contributors, enterprise evaluators  
 **Scope:** Cryptographic evidence ledger for AI agent accountability  
@@ -12,7 +12,7 @@ Full security specification: [SPEC.md Section 11](SPEC.md)
 
 ## 1. Purpose
 
-GuardClaw v0.7.0 implements GEF-SPEC-1.0 â€” a cryptographic accountability protocol for autonomous AI agents.
+GuardClaw v0.7.1 implements GEF-SPEC-1.0 — a cryptographic accountability protocol for autonomous AI agents.
 
 It provides:
 
@@ -31,7 +31,7 @@ It does not provide:
 - Authorization control
 - Key compromise detection
 - Tail truncation detection without external anchoring
-- Trusted timestamp authority (Level 4 â€” future)
+- Trusted timestamp authority (Level 4 — future)
 
 ---
 
@@ -42,7 +42,7 @@ It does not provide:
 GuardClaw guarantees:
 
 1. **Event Integrity**  
-   Any modification to any field of any signed envelope â€” including `timestamp`, `sequence`, `agent_id`, or `payload` â€” invalidates the Ed25519 signature. Detection is certain.
+   Any modification to any field of any signed envelope — including `timestamp`, `sequence`, `agent_id`, or `payload` — invalidates the Ed25519 signature. Detection is certain.
 
 2. **Causal Chain Integrity**  
    The SHA-256 hash chain binds every envelope to its predecessor. Inserting, deleting, or reordering any entry breaks the chain hash of every subsequent entry. Detection is certain.
@@ -60,12 +60,12 @@ GuardClaw guarantees:
 
 ## 3. Explicit Non-Guarantees
 
-GuardClaw v0.7.0 does NOT guarantee:
+GuardClaw v0.7.1 does NOT guarantee:
 
 - Prevention of malicious actions by the agent
 - Authorization or policy correctness
 - Cross-ledger replay prevention
-- Tail truncation detection (requires external anchoring â€” Level 4)
+- Tail truncation detection (requires external anchoring — Level 4)
 - Trusted wall-clock time (timestamps are operator-asserted)
 - Protection against stolen private keys
 - Immutable storage at the OS/filesystem level
@@ -90,7 +90,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Classification:** âœ… Detected by design
 
-**Mechanism:** Ed25519 signature verification fails. The `signer_public_key` is embedded in the signing surface â€” key substitution also breaks the chain hash of the next entry.
+**Mechanism:** Ed25519 signature verification fails. The `signer_public_key` is embedded in the signing surface — key substitution also breaks the chain hash of the next entry.
 
 ---
 
@@ -130,7 +130,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Classification:** âœ… Detected by design
 
-**Mechanism:** INV-29 â€” the replay engine actively scans all nonces. Duplicate nonce reported as `schema` violation. Chain break also reported because the re-inserted envelope's `causal_hash` will not match the expected value at its position.
+**Mechanism:** INV-29 — the replay engine actively scans all nonces. Duplicate nonce reported as `schema` violation. Chain break also reported because the re-inserted envelope's `causal_hash` will not match the expected value at its position.
 
 ---
 
@@ -152,7 +152,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Classification:** âš ï¸ Detectable with external anchoring only
 
-**Reason:** `timestamp` is in the signing surface â€” it cannot be modified after signing. However, it reflects operator-asserted time, not
+**Reason:** `timestamp` is in the signing surface — it cannot be modified after signing. However, it reflects operator-asserted time, not
 authoritative wall-clock time. RFC 3161 anchoring (Level 4) provides authoritative time proof.
 
 ---

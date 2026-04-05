@@ -77,7 +77,7 @@ The atomic unit of the ledger is the **`ExecutionEnvelope`** — a JSON object w
   "record_id":         "c2e0e2c4-5bb1-4c8f-8e51-7d37a1d2f5a1",
   "record_type":       "execution",   // genesis | intent | execution | result | failure
   "agent_id":          "agent-001",
-  "signer_public_key": "<base64url-ed25519-pubkey>",
+  "signer_public_key": "<64-hex-ed25519-pubkey>",
   "sequence":          41,
   "nonce":             "b8f7da0e6c9246f5a37bf1f1d1c5b435",
   "timestamp":         "2025-12-01T12:34:56.789012Z",

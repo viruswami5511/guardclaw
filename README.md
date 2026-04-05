@@ -1,11 +1,11 @@
-﻿# GuardClaw
+# GuardClaw
 
 **Cryptographic execution integrity for autonomous AI agents.**
 
 [![PyPI](https://img.shields.io/pypi/v/guardclaw)](https://pypi.org/project/guardclaw/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/guardclaw/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
-[![Protocol](https://img.shields.io/badge/protocol-GEF--SPEC--1.0-green)](docs/GEF-SPEC-1.0.md)
+[![Protocol](https://img.shields.io/badge/protocol-GEF--SPEC--1.0-green)](docs/GEF-SPEC-v1.0.md)
 [![Tests](https://img.shields.io/badge/tests-117%20passing-brightgreen)](#tests)
 
 ---
@@ -97,7 +97,7 @@ Requires **Python 3.9+**. Core dependencies: `cryptography`, `jcs`, `click`.
 ## Quick Start
 
 ```python
-from guardclaw import GEFLedger, Ed25519KeyManager, RecordType
+from guardclaw import GEFLedger, Ed25519KeyManager
 
 key = Ed25519KeyManager.generate()
 
@@ -109,27 +109,26 @@ ledger = GEFLedger(
 )
 
 ledger.emit(
-    RecordType.EXECUTION,
+    record_type="execution",
     payload={"action": "shell.exec", "cmd": "rm temp.txt"},
 )
 
 ledger.emit(
-    RecordType.RESULT,
+    record_type="result",
     payload={"status": "success"},
 )
 
-ledger.close()
-
-print("Chain valid:", ledger.verify_chain())
+result = ledger.verify_chain()
+print("Chain valid:", result)
 ```
 
 Output (ledger on disk):
 
 ```text
-agent_ledger/ledger.gef   # JSONL format, one signed envelope per line
+agent_ledger/ledger.jsonl   # JSONL format, one signed envelope per line
 ```
 
-One `.gef` file. One public key.  
+One JSONL ledger file. One public key.  
 No network calls. No trusted server. No hidden state.
 
 ---
@@ -141,7 +140,7 @@ Each execution entry is:
 1. **Canonicalized** using RFC 8785 JCS — deterministic, byte‑for‑byte reproducible  
 2. **Hash‑chained** — each entry commits to the full history before it  
 3. **Ed25519 signed** — cryptographically bound to the agent’s identity  
-4. **Appended** to a JSONL `.gef` ledger  
+4. **Appended** to a JSONL ledger file (`ledger.jsonl`), the on-disk representation of the GEF ledger 
 
 **Chain linkage:**
 
@@ -172,21 +171,23 @@ Any modification, deletion, or reordering → verification fails.
 
 ## Verification
 
-```bash
+GuardClaw stores the on-disk ledger as newline-delimited JSON (`ledger.jsonl`), while `.gef` refers to the GuardClaw Evidence Format and is used for protocol/bundle identity. GuardClaw accepts both `.jsonl` and `.gef` ledger filenames; the format is content-based. In this README, `ledger.jsonl` is used for the on-disk raw ledger for clarity, while `.gef` is used for protocol and bundle identity.
+
+```bash	
 # Verify a ledger
-guardclaw verify agent_ledger/ledger.gef
+guardclaw verify agent_ledger/ledger.jsonl
 
 # Verify a bundle (verifies contained ledger)
 guardclaw verify case.gcbundle
 
 # JSON output for CI/automation
-guardclaw verify agent_ledger/ledger.gef --format json
+guardclaw verify agent_ledger/ledger.jsonl --format json
 
 # Exit‑code‑only mode (CI pipelines)
-guardclaw verify agent_ledger/ledger.gef --quiet
+guardclaw verify agent_ledger/ledger.jsonl --quiet
 
 # Export full audit report
-guardclaw verify agent_ledger/ledger.gef --format json > report.json
+guardclaw verify agent_ledger/ledger.jsonl --format json > report.json
 ```
 
 Verification checks on every entry:
@@ -207,9 +208,9 @@ Exit codes: `0` = valid, `1` = invalid, `2` = error.
 When you need to share proof with an auditor, regulator, or third party — export a bundle:
 
 ```bash
-guardclaw export agent_ledger/ledger.gef
-guardclaw export audit.gef --output case.gcbundle
-guardclaw export audit.gef --output ./evidence --format json
+guardclaw export agent_ledger/ledger.jsonl
+guardclaw export audit.jsonl --output case.gcbundle
+guardclaw export audit.jsonl --output ./evidence --format json
 ```
 
 **Bundle layout:**
@@ -315,7 +316,7 @@ whatever regulatory or compliance regime you operate under.
 
 ## Tests
 
-**117 tests passing.** Adversarial scenarios covered:
+**118 passed, 1 skipped.** Adversarial scenarios covered:
 
 - Payload, signature, and hash tampering  
 - Replay attacks  
@@ -332,7 +333,7 @@ pytest
 
 ## Specification
 
-**GEF-SPEC-1.0** — Stable. Implemented in GuardClaw v0.7.x.
+**GEF-SPEC-v1.0** — Stable. Implemented in GuardClaw v0.7.x.
 
 Defines the complete contract for:
 
@@ -342,7 +343,7 @@ Defines the complete contract for:
 - Ed25519 signing surface
 - Verification algorithm, failure types, and exit codes
 
-See [`docs/GEF-SPEC-1.0.md`](docs/GEF-SPEC-1.0.md).
+See [`docs/GEF-SPEC-v1.0.md`](docs/GEF-SPEC-v1.0.md).
 
 **GEF-SPEC-v1.1-draft** — Experimental roadmap. Not yet implemented.  
 Covers subject-scoped nonces, multi-ledger identity, content commitment,
@@ -359,7 +360,7 @@ guardclaw/
 ├── core/           # GEF‑SPEC‑1.0 protocol implementation
 ├── bundle/         # Evidence bundle export (.gcbundle)
 │   ├── exporter.py
-│   ├── models.py
+│   ├── models.py from guardclaw import GEFLedger, Ed25519KeyManager, RecordType
 │   └── report.py
 ├── adapters/       # Framework integrations
 │   ├── langchain.py
@@ -376,7 +377,7 @@ guardclaw/
 
 | Property        | Value        |
 |-----------------|--------------|
-| Version         | v0.7.0       |
+| Version         | v0.7.1       |
 | Protocol        | GEF‑SPEC‑1.0 |
 | License         | Apache 2.0   |
 | Ledger protocol | Stable       |
