@@ -38,6 +38,7 @@ def _extract_verification_view(data: dict) -> dict:
 
 
 def test_export_bundle_roundtrip_artifacts_and_cli_consistency(tmp_path):
+    # _make_ledger(n=7) = genesis (auto) + 7 user records = 8 total entries
     _, ledger_file = _make_ledger(tmp_path, n=7)
 
     bundle_dir = GEFBundleExporter(ledger_file).export(tmp_path)
@@ -61,7 +62,7 @@ def test_export_bundle_roundtrip_artifacts_and_cli_consistency(tmp_path):
     public_key       = _read_json(bundle_dir / "public_key.json")
 
     assert summary["chain_valid"] is True
-    assert summary["total_entries"] == 7
+    assert summary["total_entries"] == 8
     assert isinstance(summary["violations"], list)
     assert not summary["violations"]
 
@@ -85,13 +86,13 @@ def test_export_bundle_roundtrip_artifacts_and_cli_consistency(tmp_path):
 
     # ── entry count check (handles all shapes) ────────────────────────────
     if "total_entries" in verification:
-        assert verification["total_entries"] == 7
+        assert verification["total_entries"] == 8
     elif "original_count" in verification:
-        assert verification["original_count"] == 7
+        assert verification["original_count"] == 8
     elif "verified_entry_count" in verification:
-        assert verification["verified_entry_count"] == 7
+        assert verification["verified_entry_count"] == 8
     elif "total_entry_count" in verification:
-        assert verification["total_entry_count"] == 7
+        assert verification["total_entry_count"] == 8
 
     # ── CLI verify consistency check ──────────────────────────────────────
     runner = CliRunner()
@@ -106,8 +107,8 @@ def test_export_bundle_roundtrip_artifacts_and_cli_consistency(tmp_path):
 
     assert inner["chain_valid"] is True
     assert inner["ledger_valid"] is True
-    assert inner["total_entries"] == 7
-    assert inner["valid_signatures"] == 7
+    assert inner["total_entries"] == 8
+    assert inner["valid_signatures"] == 8
     assert inner["invalid_signatures"] == 0
     assert inner["violation_count"] == 0
     assert inner["violations"] == []
@@ -115,20 +116,21 @@ def test_export_bundle_roundtrip_artifacts_and_cli_consistency(tmp_path):
     assert inner["chain_valid"] == summary["chain_valid"]
     assert inner["total_entries"] == summary["total_entries"]
 
-    # ── CLI export smoke-test (CliRunner — no subprocess needed) ─────────
+    # ── CLI export smoke-test ─────────────────────────────────────────────
     export_result = runner.invoke(cli, ["export", str(ledger_file)])
     assert export_result.exit_code == 0, export_result.output
     assert "bundle" in export_result.output.lower()
 
 
 def test_exported_bundle_verify_fails_if_bundle_ledger_is_tampered_after_export(tmp_path):
+    # _make_ledger(n=4) = genesis (auto) + 4 user records = 5 lines on disk
     _, ledger_file = _make_ledger(tmp_path, n=4)
 
     bundle_dir = GEFBundleExporter(ledger_file).export(tmp_path)
     exported_ledger = bundle_dir / "ledger.gef"
 
     lines = _read_lines(exported_ledger)
-    assert len(lines) == 4
+    assert len(lines) == 5
 
     last = json.loads(lines[-1])
     last["payload"]["step"] = 999999
@@ -151,13 +153,15 @@ def test_exported_bundle_verify_fails_if_bundle_ledger_is_tampered_after_export(
 
 
 def test_export_refuses_preexisting_tampered_source_ledger(tmp_path):
+    # _make_ledger(n=3) = genesis (auto) + 3 user records = 4 lines on disk
     _, ledger_file = _make_ledger(tmp_path, n=3)
 
     lines = _read_lines(ledger_file)
-    assert len(lines) == 3
+    assert len(lines) == 4
 
+    # Tamper the genesis record (line 0) — signature will fail
     first = json.loads(lines[0])
-    first["payload"]["step"] = 12345
+    first["payload"]["injected"] = "tamper"
     lines[0] = json.dumps(first, separators=(",", ":"))
     ledger_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -191,7 +195,12 @@ def test_export_refuses_mixed_signing_identities_in_single_input_ledger(tmp_path
     with pytest.raises(BundleExportError) as exc:
         GEFBundleExporter(mixed_path).export(tmp_path)
 
-    assert "Identity" in str(exc.value) or "sign" in str(exc.value).lower()
+    assert (
+    "Identity" in str(exc.value)
+    or "sign" in str(exc.value).lower()
+    or "duplicate_genesis" in str(exc.value).lower()
+    or "chain_violation" in str(exc.value).lower()
+    )
 
 
 def test_export_to_explicit_gcbundle_path_creates_that_directory(tmp_path):
