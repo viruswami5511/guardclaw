@@ -36,7 +36,7 @@ def verify(ledger: Path, output_format: str, recover: bool, quiet: bool):
     """Verify a GEF ledger — chain integrity, signatures, schema."""
     mode = "recovery" if recover else "strict"
     try:
-        engine  = ReplayEngine(mode=mode, parallel=True, silent=(quiet or output_format == "json"))
+        engine  = ReplayEngine(mode=mode, silent=(quiet or output_format == "json"))
         summary: VerificationSummary = engine.stream_verify(ledger)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc

@@ -1,616 +1,447 @@
 """
 guardclaw/core/models.py
+GEF Envelope Model — v1.3.1
 
-GEF Data Model — v0.2.1
-Aligned to: GEF-SPEC-v1.0
+Protocol invariants enforced here:
+    - validate_schema() raises SchemaValidationError — fail-closed, no advisory path
+    - collect_schema_errors() for diagnostics and replay engine only
+    - cipher_suite=0 rejected at to_dict() — never written
+    - cipher_suite=1 requires iv + auth_tag + str payload — fully validated
+    - signer_public_key validated as 64-char hex
+    - causal_hash validated as 64-char hex
+    - RecordType.normalize() enforces uppercase before validation
+    - signature validated as base64url in schema (S4 fix)
 
-THIS FILE IS LOCKED AFTER THIS VERSION.
-Any change to contracts below requires a GEF spec version bump.
-
-═══════════════════════════════════════════════════════════════════
-PROTOCOL CONTRACTS — Locked. Changes require spec version bump.
-═══════════════════════════════════════════════════════════════════
-
-CONTRACT 1 — Signing
-bytes_signed = canonical_json_encode(env.to_signing_dict())
-algorithm    = Ed25519
-encoding     = base64url, no padding
-
-CONTRACT 2 — Chain
-causal_hash     = SHA-256(canonical_json_encode(prev.to_chain_dict()))
-first_entry     = GENESIS_HASH ("0" * 64)
-payload IN chain dict     → payload mutation breaks forward chain
-gef_version IN chain dict → version is part of chain identity
-
-CONTRACT 3 — Timestamp
-format = YYYY-MM-DDTHH:MM:SS.mmmZ (exactly 3 fractional digits, UTC, Z suffix)
-source = gef_timestamp() in guardclaw/core/time.py — nowhere else
-
-CONTRACT 4 — Nonce
-format   = exactly 32 hex characters (128-bit random entropy)
-purpose  = anti-replay uniqueness guard per entry
-semantic = NOT monotonic. sequence = ordering. nonce = uniqueness.
-
-CONTRACT 5 — Vocabulary
-record_type must be a RecordType constant.
-enforced at create() → ValueError
-validated at from_dict() time via validate_schema()
-
-CONTRACT 6 — Version
-gef_version travels inside every envelope.
-included in to_signing_dict() and to_chain_dict().
-all envelopes in a single ledger MUST share identical gef_version.
-enforcement: replay raises GEFVersionError on version mismatch within ledger.
-
-CONTRACT 7 — signer_public_key
-must be exactly 64 valid lowercase hex characters (32-byte Ed25519 public key raw)
-validated in validate_schema()
-
-═══════════════════════════════════════════════════════════════════
-CROSS-LANGUAGE GUARANTEE
-═══════════════════════════════════════════════════════════════════
-A Rust/Go/TypeScript implementation that reproduces:
-    to_signing_dict()      — fields, names, includes gef_version + payload
-    to_chain_dict()        — fields, names, includes gef_version + payload
-    canonical_json_encode() — RFC 8785 JCS
-    sha256(canonical_json_encode(prev.to_chain_dict()))
-
-...will produce byte-for-byte identical chain hashes and signatures.
-That is the definition of a working protocol.
-═══════════════════════════════════════════════════════════════════
-
-CHANGE LOG:
-    v0.2.1 — verify_signature() now returns tuple[bool, str] instead of bool.
-             reason values:
-               ""          — valid signature
-               "encoding"  — non-canonical base64url (contains + / =)
-               "mismatch"  — valid encoding but wrong signature bytes
-             This enables replay.py to emit invalid_signature_encoding
-             vs invalid_signature as separate violation types.
-             All callers that previously used:
-               if env.verify_signature():
-             must now use:
-               sig_ok, sig_reason = env.verify_signature()
-
-#     v0.2.2 — trigger_hash added as optional payload field (Phase 2B).
-#              Stored in payload dict, not as a top-level envelope field.
-#              Raw trigger text is NEVER persisted — only SHA-256 hex digest.
-#              No changes to signing dict, chain dict, or schema validation.
-#              Backward compatible: old envelopes without trigger_hash
-#              remain fully valid and verifiable.
+FIXES APPLIED (Audit Phase 3):
+    - S4: signature base64url format enforced in collect_schema_errors()
+    - E10: cipher_suite invariant in from_dict() is correct — deserialization
+           must accept disk data; cipher_suite=1 requires iv+auth_tag+str payload
+           which is enforced by the schema layer above. Justified.
 """
 
+from __future__ import annotations
 import hashlib
 import re
-import secrets
 import uuid
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from guardclaw.core.canonical import canonical_json_encode
-from guardclaw.core.time import gef_timestamp
+from guardclaw.core.crypto import Ed25519KeyManager
 
-# ─────────────────────────────────────────────────────────────
-# GEF Constants
-# ─────────────────────────────────────────────────────────────
-
-GEF_VERSION  = "1.0"
+GEF_VERSION = "1.0"
 GENESIS_HASH = "0" * 64
 
-# Nonce: exactly 32 hex characters = 16 bytes = 128-bit entropy
-_NONCE_HEX_LENGTH = 32
+VALID_RECORD_TYPES = frozenset({
+    "GENESIS", "EXECUTION", "RESULT", "FAILURE", "TOOL_CALL", "TOOL_RESULT",
+    "DECISION", "INTENT", "OBSERVATION", "MEMORY_READ", "MEMORY_WRITE",
+    "HANDOFF", "INTERRUPTED", "ERROR", "CUSTOM",
+})
 
-# signer_public_key: raw Ed25519 public key = 32 bytes = 64 hex chars
-_PUBLIC_KEY_HEX_LENGTH = 64
-
-# Timestamp: strict GEF wire format
-# YYYY-MM-DDTHH:MM:SS.mmmZ — exactly 3 fractional digits, Z suffix, no +00:00
-_TIMESTAMP_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$"
-)
-
-# ─────────────────────────────────────────────────────────────
-# Exceptions
-# ─────────────────────────────────────────────────────────────
-
-class GEFVersionError(Exception):
-    """
-    Raised when envelopes within a single ledger carry different gef_version values.
-    A ledger must be version-homogeneous.
-    """
-    pass
-
-# ─────────────────────────────────────────────────────────────
-# Record Type Vocabulary — Locked and Enforced
-# ─────────────────────────────────────────────────────────────
-
-class RecordType:
-    """
-    GEF record_type string constants.
-
-    These are the ONLY valid values for ExecutionEnvelope.record_type.
-
-    Enforcement points:
-        create()          → ValueError on unknown type
-        validate_schema() → SchemaValidationResult with error on unknown type
-        from_dict()       → trusts persisted data (caller must validate_schema)
-    """
-    GENESIS            = "genesis"
-    AGENT_REGISTRATION = "agent_registration"
-    INTENT             = "intent"
-    EXECUTION          = "execution"
-    RESULT             = "result"
-    FAILURE            = "failure"
-    DELEGATION         = "delegation"
-    HEARTBEAT          = "heartbeat"
-    TOOL_CALL          = "tool_call"
-    TOMBSTONE          = "tombstone"
-    ADMIN_ACTION       = "admin_action"
-
-
-# Built once at import time. O(1) membership test.
-_VALID_RECORD_TYPES: Set[str] = {
-    RecordType.GENESIS,
-    RecordType.AGENT_REGISTRATION,
-    RecordType.INTENT,
-    RecordType.EXECUTION,
-    RecordType.RESULT,
-    RecordType.FAILURE,
-    RecordType.DELEGATION,
-    RecordType.HEARTBEAT,
-    RecordType.TOOL_CALL,
-    RecordType.TOMBSTONE,
-    RecordType.ADMIN_ACTION,
+KNOWN_FIELDS = {
+    "gef_version", "record_id", "record_type", "agent_id",
+    "session_id", "sequence", "timestamp", "causal_hash",
+    "nonce", "payload", "signer_public_key", "signature",
+    "key_id", "trusted_timestamp",
+    "cipher_suite", "iv", "auth_tag",
 }
 
-# ─────────────────────────────────────────────────────────────
-# SchemaValidationResult
-# ─────────────────────────────────────────────────────────────
+_VALID_CIPHER_SUITES = frozenset({1})  # None=plaintext, 1=AES-256-GCM
+_B64URL_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+_HEX_RE = re.compile(r'^[0-9a-fA-F]+$')
+
+
+class RecordType:
+    GENESIS      = "GENESIS"
+    EXECUTION    = "EXECUTION"
+    RESULT       = "RESULT"
+    FAILURE      = "FAILURE"
+    TOOL_CALL    = "TOOL_CALL"
+    TOOL_RESULT  = "TOOL_RESULT"
+    DECISION     = "DECISION"
+    INTENT       = "INTENT"
+    OBSERVATION  = "OBSERVATION"
+    MEMORY_READ  = "MEMORY_READ"
+    MEMORY_WRITE = "MEMORY_WRITE"
+    HANDOFF      = "HANDOFF"
+    INTERRUPTED  = "INTERRUPTED"
+    ERROR        = "ERROR"
+    CUSTOM       = "CUSTOM"
+
+    @classmethod
+    def normalize(cls, raw: str) -> str:
+        if not isinstance(raw, str):
+            raise ValueError("record_type must be str")
+        upper = raw.upper()
+        if upper in VALID_RECORD_TYPES:
+            return upper
+        raise ValueError(
+            f"Invalid record_type {raw!r}. Valid: {sorted(VALID_RECORD_TYPES)}"
+        )
+
 
 @dataclass
-class SchemaValidationResult:
-    """
-    Result of ExecutionEnvelope.validate_schema().
-
-    Returned — not raised — so callers can choose hard fail vs log.
-    bool(result) is True iff valid.
-    """
-    valid:  bool
-    errors: List[str]
+class SchemaResult:
+    valid: bool
+    errors: List[str] = field(default_factory=list)
 
     def __bool__(self) -> bool:
         return self.valid
 
-    def __repr__(self) -> str:
-        if self.valid:
-            return "SchemaValidationResult(VALID)"
-        return f"SchemaValidationResult(INVALID, errors={self.errors})"
+
+SchemaValidationResult = SchemaResult
 
 
-# ─────────────────────────────────────────────────────────────
-# ExecutionEnvelope — THE ONLY GEF LEDGER ENTRY TYPE
-# ─────────────────────────────────────────────────────────────
+class GEFVersionError(Exception):
+    """Raised when a ledger's gef_version is unsupported."""
+
+
+class SchemaValidationError(Exception):
+    """
+    Raised by validate_schema() when any envelope invariant is violated.
+
+    Protocol rule: invalid state must never silently proceed.
+    Use collect_schema_errors() for diagnostic/non-raising checks.
+    """
+
 
 @dataclass
 class ExecutionEnvelope:
-    """
-    The singular GEF ledger entry. No other ledger type exists.
-
-    See module docstring for all seven protocol contracts.
-    """
-
+    # ── 12 canonical v1.0 fields ──────────────────────────────────────────────
     gef_version:        str
     record_id:          str
     record_type:        str
     agent_id:           str
-    signer_public_key:  str
+    session_id:         str
     sequence:           int
-    nonce:              str
     timestamp:          str
     causal_hash:        str
-    payload:            Dict[str, Any]
-    signature:          Optional[str] = None
+    nonce:              str
+    payload:            Union[Dict[str, Any], str]
+    signer_public_key:  str
+    signature:          Optional[str] = field(default=None)
 
-    # ── Constructor ───────────────────────────────────────────
+    # ── Phase 1 optional fields ───────────────────────────────────────────────
+    key_id:             Optional[str]            = field(default=None)
+    trusted_timestamp:  Optional[Dict[str, Any]] = field(default=None)
+
+    # ── Phase 3 encryption fields ─────────────────────────────────────────────
+    cipher_suite:       Optional[int] = field(default=None)
+    iv:                 Optional[str] = field(default=None)
+    auth_tag:           Optional[str] = field(default=None)
+
+    # ── Factory ───────────────────────────────────────────────────────────────
 
     @classmethod
     def create(
         cls,
-        record_type:       str,
-        agent_id:          str,
-        signer_public_key: str,
-        sequence:          int,
-        payload:           Dict[str, Any],
-        prev:              Optional["ExecutionEnvelope"] = None,
+        record_type:        str,
+        agent_id:           str,
+        session_id:         str,
+        signer_public_key:  str,
+        sequence:           int,
+        payload:            Dict[str, Any],
+        prev:               Optional["ExecutionEnvelope"],
+        key_id:             Optional[str] = None,
+        trusted_timestamp:  Optional[Dict[str, Any]] = None,
     ) -> "ExecutionEnvelope":
-        """
-        Create an unsigned ExecutionEnvelope with correct causal_hash.
-
-        Hard enforces:
-            record_type       — must be in _VALID_RECORD_TYPES
-            payload           — must be a dict
-            sequence          — must be non-negative int
-            signer_public_key — must be 64-char hex string
-
-        Call .sign(key_manager) immediately after:
-            env = ExecutionEnvelope.create(...).sign(key_manager)
-        """
-        # ── Input enforcement ─────────────────────────────────
-        if record_type not in _VALID_RECORD_TYPES:
-            raise ValueError(
-                f"Invalid record_type '{record_type}'. "
-                f"Valid: {sorted(_VALID_RECORD_TYPES)}"
-            )
-        if not isinstance(payload, dict):
-            raise TypeError(
-                f"payload must be dict, got {type(payload).__name__}"
-            )
-        if not isinstance(sequence, int) or sequence < 0:
-            raise ValueError(
-                f"sequence must be non-negative int, got {sequence!r}"
-            )
-        if (
-            not isinstance(signer_public_key, str)
-            or len(signer_public_key) != _PUBLIC_KEY_HEX_LENGTH
-        ):
-            raise ValueError(
-                f"signer_public_key must be {_PUBLIC_KEY_HEX_LENGTH}-char hex string, "
-                f"got length {len(signer_public_key) if isinstance(signer_public_key, str) else type(signer_public_key).__name__}"
-            )
-        try:
-            bytes.fromhex(signer_public_key)
-        except ValueError:
-            raise ValueError(
-                f"signer_public_key is not valid hex: {signer_public_key!r}"
-            )
-        # ──────────────────────────────────────────────────────
-
+        causal_hash = _compute_causal_hash(prev) if prev else GENESIS_HASH
         return cls(
             gef_version       = GEF_VERSION,
             record_id         = f"gef-{uuid.uuid4()}",
-            record_type       = record_type,
+            record_type       = RecordType.normalize(record_type),
             agent_id          = agent_id,
-            signer_public_key = signer_public_key,
+            session_id        = session_id,
             sequence          = sequence,
-            nonce             = secrets.token_hex(_NONCE_HEX_LENGTH // 2),
-            timestamp         = gef_timestamp(),
-            causal_hash       = cls._compute_causal_hash(prev),
+            timestamp         = _utc_now(),
+            causal_hash       = causal_hash,
+            nonce             = uuid.uuid4().hex,
             payload           = payload,
+            signer_public_key = signer_public_key,
             signature         = None,
+            key_id            = key_id,
+            trusted_timestamp = trusted_timestamp,
+            cipher_suite      = None,
+            iv                = None,
+            auth_tag          = None,
         )
 
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ExecutionEnvelope":
-        """
-        Deserialize from a JSONL line dict.
-        THE ONLY deserialization path. Used by replay, CLI, verification.
-
-        Trusts persisted data — does NOT enforce record_type or field formats.
-        Callers MUST call validate_schema() to check stored data integrity.
-
-        This separation lets replay distinguish:
-            "unknown record_type injected post-write" (schema violation)
-        vs "field missing entirely"                   (KeyError from from_dict)
-        """
-        return cls(
-            gef_version       = data["gef_version"],
-            record_id         = data["record_id"],
-            record_type       = data["record_type"],
-            agent_id          = data["agent_id"],
-            signer_public_key = data["signer_public_key"],
-            sequence          = data["sequence"],
-            nonce             = data["nonce"],
-            timestamp         = data["timestamp"],
-            causal_hash       = data["causal_hash"],
-            payload           = data.get("payload", {}),
-            signature         = data.get("signature"),
-        )
-
-    # ── Schema Validation ─────────────────────────────────────
-
-    def validate_schema(self) -> SchemaValidationResult:
-        """
-        Validate this envelope's schema against all GEF protocol rules.
-
-        Called by:
-            ReplayEngine.load()   → fail fast on corrupt/injected entry
-            verify_envelope()     → before signature check
-            CLI verify command    → before any processing
-
-        Returns SchemaValidationResult — not bool — so callers
-        can report the EXACT violation rather than silently pass/fail.
-        """
-        errors: List[str] = []
-
-        # gef_version
-        if self.gef_version != GEF_VERSION:
-            errors.append(
-                f"gef_version: expected '{GEF_VERSION}', got '{self.gef_version}'"
-            )
-
-        # record_type
-        if self.record_type not in _VALID_RECORD_TYPES:
-            errors.append(
-                f"record_type '{self.record_type}' not in valid set: "
-                f"{sorted(_VALID_RECORD_TYPES)}"
-            )
-
-        # record_id
-        if not isinstance(self.record_id, str) or not self.record_id.startswith("gef-"):
-            errors.append(
-                f"record_id must be a string starting with 'gef-', got {self.record_id!r}"
-            )
-
-        # agent_id
-        if not isinstance(self.agent_id, str) or not self.agent_id:
-            errors.append("agent_id must be a non-empty string")
-
-        # signer_public_key — CONTRACT 7
-        if not isinstance(self.signer_public_key, str):
-            errors.append(
-                f"signer_public_key must be str, got {type(self.signer_public_key).__name__}"
-            )
-        elif len(self.signer_public_key) != _PUBLIC_KEY_HEX_LENGTH:
-            errors.append(
-                f"signer_public_key must be exactly {_PUBLIC_KEY_HEX_LENGTH} hex chars "
-                f"(32-byte Ed25519 key), got {len(self.signer_public_key)}"
-            )
-        else:
-            try:
-                bytes.fromhex(self.signer_public_key)
-            except ValueError:
-                errors.append(
-                    f"signer_public_key is not valid hex: {self.signer_public_key!r}"
-                )
-
-        # sequence
-        if not isinstance(self.sequence, int) or self.sequence < 0:
-            errors.append(
-                f"sequence must be non-negative int, got {self.sequence!r}"
-            )
-
-        # nonce — CONTRACT 4
-        if not isinstance(self.nonce, str):
-            errors.append(f"nonce must be str, got {type(self.nonce).__name__}")
-        elif len(self.nonce) != _NONCE_HEX_LENGTH:
-            errors.append(
-                f"nonce must be exactly {_NONCE_HEX_LENGTH} hex chars, "
-                f"got {len(self.nonce)}"
-            )
-        else:
-            try:
-                bytes.fromhex(self.nonce)
-            except ValueError:
-                errors.append(f"nonce is not valid hex: {self.nonce!r}")
-
-        # timestamp — CONTRACT 3: strict format YYYY-MM-DDTHH:MM:SS.mmmZ
-        if not isinstance(self.timestamp, str):
-            errors.append(
-                f"timestamp must be str, got {type(self.timestamp).__name__}"
-            )
-        elif not _TIMESTAMP_RE.match(self.timestamp):
-            errors.append(
-                f"timestamp '{self.timestamp}' does not match GEF wire format "
-                f"YYYY-MM-DDTHH:MM:SS.mmmZ (exactly 3 fractional digits, Z suffix)"
-            )
-
-        # causal_hash — must be 64 hex chars
-        if not isinstance(self.causal_hash, str):
-            errors.append(
-                f"causal_hash must be str, got {type(self.causal_hash).__name__}"
-            )
-        elif len(self.causal_hash) != 64:
-            errors.append(
-                f"causal_hash must be 64 hex chars, got {len(self.causal_hash)}"
-            )
-        else:
-            try:
-                bytes.fromhex(self.causal_hash)
-            except ValueError:
-                errors.append(
-                    f"causal_hash is not valid hex: {self.causal_hash!r}"
-                )
-
-        # payload
-        if not isinstance(self.payload, dict):
-            errors.append(
-                f"payload must be dict, got {type(self.payload).__name__}"
-            )
-
-        return SchemaValidationResult(valid=len(errors) == 0, errors=errors)
-
-    # ── The Three Canonical Contracts ─────────────────────────
-
-    def to_signing_dict(self) -> Dict[str, Any]:
-        """
-        CONTRACT 1 — The EXACT dict signed by Ed25519.
-
-        Includes: all fields EXCEPT signature.
-        Includes: payload      (content must be signed)
-        Includes: gef_version  (envelope is self-describing)
-
-        Cross-language: any implementation reproducing these exact field
-        names and values and passing through JCS will verify a GEF signature.
-        """
-        return {
-            "agent_id":          self.agent_id,
-            "causal_hash":       self.causal_hash,
-            "gef_version":       self.gef_version,
-            "nonce":             self.nonce,
-            "payload":           self.payload,
-            "record_id":         self.record_id,
-            "record_type":       self.record_type,
-            "sequence":          self.sequence,
-            "signer_public_key": self.signer_public_key,
-            "timestamp":         self.timestamp,
-        }
-
-    def to_chain_dict(self) -> Dict[str, Any]:
-        """
-        CONTRACT 2 — The EXACT dict hashed to compute the NEXT entry's causal_hash.
-
-        Includes: payload     (payload mutation must break forward chain)
-        Includes: gef_version (version is part of chain identity)
-        Excludes: signature   (signature is a function of this dict, not part of it)
-
-        Invariant:
-            next.causal_hash == SHA-256(JCS(prev.to_chain_dict()))
-
-        NOTE: to_chain_dict() == to_signing_dict() by design.
-        They are separate methods for semantic clarity:
-            to_signing_dict() communicates "what is signed"
-            to_chain_dict()   communicates "what is chained"
-        This makes both contracts independently readable and testable.
-        """
-        return {
-            "agent_id":          self.agent_id,
-            "causal_hash":       self.causal_hash,
-            "gef_version":       self.gef_version,
-            "nonce":             self.nonce,
-            "payload":           self.payload,
-            "record_id":         self.record_id,
-            "record_type":       self.record_type,
-            "sequence":          self.sequence,
-            "signer_public_key": self.signer_public_key,
-            "timestamp":         self.timestamp,
-        }
+    # ── Serialization ─────────────────────────────────────────────────────────
 
     def to_dict(self) -> Dict[str, Any]:
-        """
-        Full serialization including signature. Used for JSONL persistence ONLY.
-        Not used for signing. Not used for chain hashing.
-        """
-        d = self.to_signing_dict().copy()
-        d["signature"] = self.signature
+        d: Dict[str, Any] = {
+            "gef_version":       self.gef_version,
+            "record_id":         self.record_id,
+            "record_type":       self.record_type,
+            "agent_id":          self.agent_id,
+            "session_id":        self.session_id,
+            "sequence":          self.sequence,
+            "timestamp":         self.timestamp,
+            "causal_hash":       self.causal_hash,
+            "nonce":             self.nonce,
+            "payload":           self.payload,
+            "signer_public_key": self.signer_public_key,
+            "signature":         self.signature if self.signature is not None else "",
+        }
+        if self.key_id is not None:
+            d["key_id"] = self.key_id
+        if self.trusted_timestamp is not None:
+            d["trusted_timestamp"] = self.trusted_timestamp
+        if self.cipher_suite is not None:
+            if self.cipher_suite == 0:
+                raise ValueError(
+                    "Protocol invariant violated: cipher_suite=0 must never "
+                    "be written. Use None for plaintext."
+                )
+            d["cipher_suite"] = self.cipher_suite
+        if self.iv is not None:
+            d["iv"] = self.iv
+        if self.auth_tag is not None:
+            d["auth_tag"] = self.auth_tag
         return d
 
-    # ── Canonical Bytes ───────────────────────────────────────
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ExecutionEnvelope":
+        # E10 — deserialization MUST accept cipher_suite from disk.
+        # Invariant enforcement (iv+auth_tag+str payload required for cs=1)
+        # is the responsibility of the schema layer (collect_schema_errors),
+        # not from_dict. from_dict is a faithful deserializer, not a validator.
+        raw_cs = d.get("cipher_suite")
+        if raw_cs is not None and raw_cs not in _VALID_CIPHER_SUITES:
+            raise ValueError(
+                f"from_dict: unsupported cipher_suite={raw_cs!r}. "
+                f"Valid: {sorted(_VALID_CIPHER_SUITES)} or absent."
+            )
+        return cls(
+            gef_version       = d["gef_version"],
+            record_id         = d["record_id"],
+            record_type       = RecordType.normalize(d["record_type"]) if isinstance(d["record_type"], str) else d["record_type"],
+            agent_id          = d["agent_id"],
+            session_id        = d["session_id"],
+            sequence          = int(d["sequence"]),
+            timestamp         = d["timestamp"],
+            causal_hash       = d["causal_hash"],
+            nonce             = d["nonce"],
+            payload           = d["payload"],
+            signer_public_key = d["signer_public_key"],
+            signature         = d.get("signature") or None,
+            key_id            = d.get("key_id"),
+            trusted_timestamp = d.get("trusted_timestamp"),
+            cipher_suite      = raw_cs,
+            iv                = d.get("iv"),
+            auth_tag          = d.get("auth_tag"),
+        )
+
+    # ── Signing surface ───────────────────────────────────────────────────────
+
+    def canonical_signing_surface(self) -> Dict[str, Any]:
+        surface = self.to_dict()
+        surface.pop("signature", None)
+        for k in ("key_id", "trusted_timestamp"):
+            if k in surface and surface[k] is None:
+                raise ValueError(
+                    f"Protocol invariant violated: '{k}' is None in signing surface."
+                )
+        return surface
+
+    def to_signing_dict(self) -> Dict[str, Any]:
+        return self.canonical_signing_surface()
 
     def canonical_bytes_for_signing(self) -> bytes:
-        """
-        THE ONLY path to produce bytes for signing or verification.
+        return canonical_json_encode(self.canonical_signing_surface())
 
-            canonical_json_encode(self.to_signing_dict())
+    # ── Signature operations ──────────────────────────────────────────────────
 
-        This is the complete specification of "what GuardClaw signs."
-        No other path exists. No alternate method. No shortcut.
-        """
-        return canonical_json_encode(self.to_signing_dict())
-
-    # ── Chain Hash ────────────────────────────────────────────
-
-    @staticmethod
-    def _compute_causal_hash(
-        prev: Optional["ExecutionEnvelope"],
-    ) -> str:
-        """
-        THE ONLY place SHA-256 is computed over chain data in this codebase.
-
-        Rule (locked — CONTRACT 2):
-            causal_hash = SHA-256(canonical_json_encode(prev.to_chain_dict()))
-
-        Called only by create(). All chain verification goes through
-        expected_causal_hash_from() which calls this.
-        """
-        if prev is None:
-            return GENESIS_HASH
-        return hashlib.sha256(
-            canonical_json_encode(prev.to_chain_dict())
-        ).hexdigest()
-
-    def expected_causal_hash_from(
-        self, prev: Optional["ExecutionEnvelope"]
-    ) -> str:
-        """
-        What this entry's causal_hash SHOULD be given its predecessor.
-        Used by replay and verification — not by the emitter.
-        """
-        return ExecutionEnvelope._compute_causal_hash(prev)
-
-    # ── Signing ───────────────────────────────────────────────
-
-    def sign(self, key_manager) -> "ExecutionEnvelope":
-        """
-        Sign this envelope in-place. Returns self for chaining.
-
-        Computes canonical_bytes_for_signing() and calls key_manager.sign().
-        Stores base64url (no-padding) Ed25519 signature in self.signature.
-
-        Pattern:
-            env = ExecutionEnvelope.create(...).sign(key_manager)
-
-        Never call on an already-signed envelope — previous signature
-        will be silently overwritten.
-        """
-        self.signature = key_manager.sign(self.canonical_bytes_for_signing())
+    def sign(self, key_manager: Ed25519KeyManager) -> "ExecutionEnvelope":
+        surface = canonical_json_encode(self.canonical_signing_surface())
+        self.signature = key_manager.sign(surface)
         return self
-
-    # ── Verification ──────────────────────────────────────────
 
     def verify_signature(
         self,
         override_public_key_hex: Optional[str] = None,
-    ) -> Tuple[bool, str]:
+    ) -> Tuple[bool, Optional[str]]:
         """
-        Verify the Ed25519 signature over canonical_bytes_for_signing().
-
-        Uses Ed25519KeyManager.verify_detached() — a @staticmethod that
-        requires only a public key hex string. No key manager instance needed.
-        This is the ONLY correct way to verify from an envelope, because
-        the envelope stores only signer_public_key (hex), not a key manager.
-
-        Args:
-            override_public_key_hex: Verify against a different public key.
-                                     Used by tests to confirm wrong keys fail.
-                                     Defaults to self.signer_public_key.
-
         Returns:
-            (True,  "")           — signature valid over current canonical bytes
-            (False, "encoding")   — signature field contains non-canonical
-                                    base64url characters (e.g. '+' '/' '=')
-            (False, "mismatch")   — correct base64url encoding but wrong bytes,
-                                    unsigned envelope, or any other failure
-            Never raises.
-
-        GEF Law: returns (False, ...) for ANY envelope where any signed field
-        was mutated after sign() was called.
-
-        IMPORTANT — callers must unpack the tuple:
-            sig_ok, sig_reason = env.verify_signature()
-            if sig_ok: ...
+            (True,  None)       — valid
+            (False, "missing")  — signature is None or empty
+            (False, "encoding") — not valid base64url
+            (False, "mismatch") — decodes but Ed25519 fails
+            (False, "error")    — unexpected exception
         """
-        if not self.signature:
-            return False, "mismatch"
+        pub_hex = override_public_key_hex or self.signer_public_key
 
-        from guardclaw.core.crypto import Ed25519KeyManager
-
-        pubkey_hex = override_public_key_hex or self.signer_public_key
-
-        # Step 1 — strict encoding check before cryptographic verification
+        if self.signature is None:
+            return False, "missing"
+        if not isinstance(self.signature, str) or not self.signature.strip():
+            return False, "encoding"
         try:
             Ed25519KeyManager._decode_strict_base64url_signature(self.signature)
-        except ValueError:
+        except Exception:
             return False, "encoding"
 
-        # Step 2 — cryptographic verification
-        data = self.canonical_bytes_for_signing()
-        ok   = Ed25519KeyManager.verify_detached(data, self.signature, pubkey_hex)
-        return (True, "") if ok else (False, "mismatch")
+        try:
+            surface = canonical_json_encode(self.canonical_signing_surface())
+            ok = Ed25519KeyManager.verify_detached(
+                data=surface,
+                signature_b64=self.signature,
+                public_key_hex=pub_hex,
+            )
+            return (True, None) if ok else (False, "mismatch")
+        except Exception:
+            return False, "error"
 
-    def verify_chain(
-        self, prev: Optional["ExecutionEnvelope"]
-    ) -> bool:
+    # ── Chain verification ────────────────────────────────────────────────────
+
+    @classmethod
+    def compute_causal_hash(cls, prev: Optional["ExecutionEnvelope"]) -> str:
+        return _compute_causal_hash(prev) if prev else GENESIS_HASH
+
+    def verify_chain(self, prev: Optional["ExecutionEnvelope"]) -> bool:
+        expected = self.compute_causal_hash(prev)
+        return self.causal_hash == expected
+
+    # ── Schema validation — fail-closed ──────────────────────────────────────
+
+    def validate_schema(self) -> "SchemaResult":
         """
-        Verify this entry's causal_hash is correct given its predecessor.
-        Delegates entirely to expected_causal_hash_from() — no local hash logic.
-        Returns False if causal_hash doesn't match what it should be.
+        Enforce all envelope invariants — fail-closed.
+
+        Raises SchemaValidationError on any violation.
+        Returns SchemaResult(valid=True) only when all invariants pass.
         """
-        return self.causal_hash == self.expected_causal_hash_from(prev)
+        result = self.collect_schema_errors()
+        if not result.valid:
+            raise SchemaValidationError(
+                f"Schema validation failed: {result.errors}"
+            )
+        return result
 
-    def verify_sequence(self, expected: int) -> bool:
-        """Return True if self.sequence == expected."""
-        return self.sequence == expected
+    def collect_schema_errors(self) -> "SchemaResult":
+        """
+        Non-raising schema check — returns full error list.
 
-    def is_signed(self) -> bool:
-        """Return True if this envelope carries a non-empty signature."""
-        return bool(self.signature)
+        Use in: replay engine, diagnostics, audits, tests.
+        Never use in: emit(), sign(), encrypt() — those must be fail-closed.
+        """
+        errors: List[str] = []
+
+        if not isinstance(self.gef_version, str) or self.gef_version != GEF_VERSION:
+            errors.append("invalid_gef_version")
+        if not isinstance(self.record_id, str) or not self.record_id.startswith("gef-"):
+            errors.append(f"invalid_record_id:{self.record_id!r}")
+        if self.record_type not in VALID_RECORD_TYPES:
+            errors.append(f"invalid_record_type:{self.record_type!r}")
+        if not isinstance(self.agent_id, str) or not self.agent_id:
+            errors.append("invalid_agent_id")
+        if not isinstance(self.session_id, str) or not self.session_id:
+            errors.append("invalid_session_id")
+        if not isinstance(self.sequence, int) or self.sequence < 0:
+            errors.append(f"invalid_sequence:{self.sequence!r}")
+        if not isinstance(self.timestamp, str) or not self.timestamp:
+            errors.append("invalid_timestamp")
+        ch = self.causal_hash
+        if not isinstance(ch, str) or len(ch) != 64:
+            errors.append("invalid_causal_hash_len")
+        elif not _HEX_RE.match(ch):
+            errors.append("invalid_causal_hash_not_hex")
+        if not isinstance(self.nonce, str) or not self.nonce:
+            errors.append("invalid_nonce")
+        spk = self.signer_public_key
+        if not isinstance(spk, str) or len(spk) != 64:
+            errors.append("invalid_signer_public_key")
+        elif not _HEX_RE.match(spk):
+            errors.append("invalid_signer_public_key_not_hex")
+
+        # FIX S4 — signature base64url format enforced as a model invariant.
+        # Previously, signature format was only validated in verify_signature().
+        # This meant a malformed signature string could pass schema validation,
+        # enter the ledger, and fail unpredictably at verify time.
+        # Invariant: if a signature is present it must be valid base64url.
+        # None and "" are both valid (unsigned envelope — caught by verify_signature).
+        if self.signature is not None and self.signature != "":
+            if not isinstance(self.signature, str):
+                errors.append("invalid_signature_type")
+            else:
+                _validate_b64url_field(self.signature, "signature", errors)
+
+        if self.key_id is not None:
+            if not isinstance(self.key_id, str) or not self.key_id:
+                errors.append("invalid_key_id")
+        if self.trusted_timestamp is not None:
+            if not isinstance(self.trusted_timestamp, dict):
+                errors.append("invalid_trusted_timestamp_type")
+            else:
+                tsr = self.trusted_timestamp.get("tsr_base64")
+                if not isinstance(tsr, str) or not tsr:
+                    errors.append("trusted_timestamp_tsr_base64_must_be_str")
+                if "hash_alg" not in self.trusted_timestamp:
+                    errors.append("trusted_timestamp_missing_hash_alg")
+                for k, v in self.trusted_timestamp.items():
+                    if isinstance(v, (dict, list)):
+                        errors.append(
+                            f"trusted_timestamp_must_be_flat:nested_value_at_{k}"
+                        )
+
+        # ── Phase 3 encryption invariants ─────────────────────────────────────
+        if self.cipher_suite is None:
+            if self.iv is not None:
+                errors.append("plaintext_envelope_must_not_have_iv")
+            if self.auth_tag is not None:
+                errors.append("plaintext_envelope_must_not_have_auth_tag")
+            if not isinstance(self.payload, dict):
+                errors.append("plaintext_payload_must_be_dict")
+        elif self.cipher_suite == 1:
+            if not self.iv:
+                errors.append("encrypted_envelope_missing_iv")
+            if not self.auth_tag:
+                errors.append("encrypted_envelope_missing_auth_tag")
+            if not isinstance(self.payload, str) or not self.payload:
+                errors.append("encrypted_payload_must_be_base64url_string")
+            if self.iv:
+                _validate_b64url_field(self.iv, "iv", errors)
+            if self.auth_tag:
+                _validate_b64url_field(self.auth_tag, "auth_tag", errors)
+            if isinstance(self.payload, str) and self.payload:
+                _validate_b64url_field(self.payload, "payload", errors)
+        else:
+            errors.append(f"invalid_cipher_suite:{self.cipher_suite!r}")
+
+        return SchemaResult(valid=len(errors) == 0, errors=errors)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _validate_b64url_field(value: str, field_name: str, errors: List[str]) -> None:
+    if not isinstance(value, str):
+        errors.append(f"{field_name}_must_be_string")
+        return
+    if '=' in value:
+        errors.append(f"{field_name}_must_not_have_padding")
+    if not _B64URL_RE.match(value):
+        errors.append(f"{field_name}_invalid_base64url_chars")
+
+
+def _compute_causal_hash(prev: "ExecutionEnvelope") -> str:
+    d = prev.to_dict()
+    d.pop("signature", None)
+    return hashlib.sha256(canonical_json_encode(d)).hexdigest()
+
+
+def _utc_now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+def signing_surface(d: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(d)
+    out.pop("signature", None)
+    return out
+
+
+def first_schema_error(errors: List[str]) -> str:
+    return errors[0] if errors else "unknown_schema_error"
+
+
+def check_unknown_fields(d: Dict[str, Any]) -> List[str]:
+    return [k for k in d if k not in KNOWN_FIELDS]

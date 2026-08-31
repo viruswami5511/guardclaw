@@ -1,55 +1,54 @@
 """
-GuardClaw: Canonical JSON Encoding — RFC 8785 (JCS)
+guardclaw/core/canonical.py
+Canonical JSON Encoding for all GEF signing surfaces.
 
 This is the ONLY canonicalization permitted in GuardClaw.
 All signing, hashing, and chain computation MUST use this module.
 
-RFC 8785: https://www.rfc-editor.org/rfc/rfc8785
+Rule: ONE implementation. No other file defines canonical_json_encode.
+No JCS. No external dependency. Pure stdlib.
 """
 
+from __future__ import annotations
 import hashlib
-
-try:
-    import jcs as _jcs
-except ImportError as exc:
-    raise ImportError(
-        "GuardClaw requires the 'jcs' package for RFC 8785 compliance.\n"
-        "Install with: pip install jcs\n"
-        f"Original error: {exc}"
-    ) from exc
+import json
+from typing import Any
 
 
-def canonicalize(obj: dict) -> bytes:
+def canonical_json_encode(obj: Any) -> bytes:
     """
-    Encode a dict to RFC 8785 canonical JSON bytes.
+    Encode to canonical JSON bytes.
 
-    Output is deterministic regardless of key insertion order.
-    All values must be JSON-primitive (str, int, float, bool, None, list, dict).
-    Do NOT pass datetime objects — convert to .isoformat() strings first.
+    Rules:
+        - sort_keys=True        — deterministic field order
+        - separators=(",",":")  — no whitespace
+        - ensure_ascii=False    — UTF-8 passthrough
+        - Returns UTF-8 encoded bytes
 
-    Returns:
-        UTF-8 encoded canonical JSON bytes, suitable for signing.
+    This is the ONLY encoder used for signing, hashing, and AAD.
+    Never use jcs.canonicalize() or any other encoder.
+    All values must be JSON-serializable (str, int, float, bool, None, list, dict).
+    Convert datetime to .isoformat() strings before passing.
     """
-    return _jcs.canonicalize(obj)
+    return json.dumps(
+        obj,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
 
 
-def canonical_hash(obj: dict) -> str:
+# Keep canonicalize as an alias so any existing import of canonicalize() still works
+canonicalize = canonical_json_encode
+
+
+def canonical_hash(obj: Any) -> str:
     """
-    SHA-256 of the RFC 8785 canonical form.
+    SHA-256 of the canonical JSON form.
 
     Used for causal_hash chaining and record binding.
 
     Returns:
         Lowercase hex-encoded SHA-256 digest (64 characters).
     """
-    return hashlib.sha256(canonicalize(obj)).hexdigest()
-
-
-def canonical_json_encode(obj: dict) -> bytes:
-    """
-    Backward-compatibility alias for canonicalize().
-
-    Existing code importing canonical_json_encode continues to work.
-    New code should call canonicalize() directly.
-    """
-    return canonicalize(obj)
+    return hashlib.sha256(canonical_json_encode(obj)).hexdigest()

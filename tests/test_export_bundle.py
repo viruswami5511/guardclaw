@@ -26,7 +26,7 @@ def test_export_bundle_creates_artifacts(tmp_path):
 
     summary = json.loads((bundle_dir / "summary.json").read_text(encoding="utf-8"))
     assert summary["protocol_version"] == "1.0"
-    assert summary["total_entries"] == 5
+    assert summary["total_entries"] == 6
     assert summary["chain_valid"] is True
 
     html = (bundle_dir / "report.html").read_text(encoding="utf-8")

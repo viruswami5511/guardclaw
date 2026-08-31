@@ -28,6 +28,8 @@ _global_ledger: Optional[GEFLedger] = None
 def init_global_ledger(
     key_manager: Ed25519KeyManager,
     agent_id:    str,
+    ledger_path: Optional[str] = None,
+    ledger_dir:  Optional[str] = None,
     ledgerpath:  Optional[str] = None,
     ledgerdir:   Optional[str] = None,
     mode:        str = "strict",
@@ -41,21 +43,22 @@ def init_global_ledger(
     Args:
         key_manager:  Ed25519KeyManager instance for signing.
         agent_id:     String identifier for this agent/process.
-        ledgerpath:   Directory where ledger.gef will be written.
-        ledgerdir:    Alias for ledgerpath (legacy compatibility).
+        ledger_path:  Directory where ledger.jsonl will be written.
+        ledger_dir:   Alias for ledger_path.
+        ledgerpath:   Legacy alias for ledger_path.
+        ledgerdir:    Legacy alias for ledger_path.
         mode:         "strict" (default, writes to disk) or "ghost" (in-memory only).
 
     Returns:
         The initialized GEFLedger instance.
     """
-    # Accept both ledgerpath and ledgerdir — ledgerpath takes priority
-    resolved = ledgerpath or ledgerdir
+    resolved = ledger_path or ledger_dir or ledgerpath or ledgerdir
 
     global _global_ledger
     _global_ledger = GEFLedger(
         key_manager=key_manager,
         agent_id=agent_id,
-        ledgerpath=resolved,
+        ledger_path=resolved,
         mode=mode,
     )
     return _global_ledger

@@ -126,66 +126,35 @@ def build_ledger() -> float:
 
 
 def summarize_result(result: Any) -> dict[str, Any]:
+    # stream_verify returns a VerificationSummary object
+    if hasattr(result, "to_dict"):
+        return result.to_dict()
+    
     out: dict[str, Any] = {}
-
-    for name in (
-        "totalentries",
-        "total_entries",
-        "chainvalid",
-        "chain_valid",
-        "validsignatures",
-        "valid_signatures",
-        "invalidsignatures",
-        "invalid_signatures",
-        "firsttimestamp",
-        "first_timestamp",
-        "lasttimestamp",
-        "last_timestamp",
-        "gefversion",
-        "gef_version",
-    ):
+    fields = [
+        "total_entries", "chain_valid", "valid_signatures", 
+        "invalid_signatures", "failure_sequence", "failure_type", 
+        "failure_detail", "verification_level", "interrupted"
+    ]
+    for name in fields:
         if hasattr(result, name):
             out[name] = getattr(result, name)
-
-    if hasattr(result, "violations"):
-        try:
-            out["violation_count"] = len(result.violations or [])
-        except Exception:
-            out["violation_count"] = None
-
     return out
 
 
 def _is_valid(result: Any) -> bool:
-    chainvalid = (
-        getattr(result, "chain_valid", None)
-        or getattr(result, "chainvalid", None)
-        or False
-    )
-    invalids = int(
-        getattr(result, "invalid_signatures", None)
-        or getattr(result, "invalidsignatures", None)
-        or 0
-    )
-    violations = len(getattr(result, "violations", []) or [])
-    return bool(chainvalid and invalids == 0 and violations == 0)
+    # Per Spec Section 2.9, FULLY_VALID is the goal for success in stress tests
+    return getattr(result, "chain_valid", False) and getattr(result, "verification_level", "") == "FULLY_VALID"
 
 
 def verify_once() -> tuple[bool, dict[str, Any], float]:
-    try:
-        engine = ReplayEngine(parallel=True, silent=True)
-    except TypeError:
-        engine = ReplayEngine()
-
+    # IMPLEMENTING NEW PATTERN
+    engine = ReplayEngine(mode="strict", silent=True)
     t0 = time.perf_counter()
-
-    if hasattr(engine, "streamverify"):
-        result = engine.streamverify(LEDGER_PATH)
-        elapsed = time.perf_counter() - t0
-        return _is_valid(result), summarize_result(result), elapsed
-
-    engine.load(LEDGER_PATH)
-    result = engine.verify()
+    
+    # Use stream_verify for O(1) memory efficiency
+    result = engine.stream_verify(LEDGER_PATH)
+    
     elapsed = time.perf_counter() - t0
     return _is_valid(result), summarize_result(result), elapsed
 
@@ -225,7 +194,7 @@ def run_concurrent_verify() -> tuple[float, list[dict[str, Any]]]:
 
 
 def main() -> None:
-    print("Building 1M ledger. This may take a few minutes...")
+    print("Building ledger. This may take a moment...")
     build_seconds = build_ledger()
     ledger_size = LEDGER_PATH.stat().st_size if LEDGER_PATH.exists() else 0
 

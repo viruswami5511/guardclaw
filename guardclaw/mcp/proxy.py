@@ -19,7 +19,7 @@ import uuid
 import inspect
 import asyncio
 import functools
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Union, List
 
 from guardclaw.api import record_action
 
@@ -76,14 +76,24 @@ def _schema_from_function(func: Callable) -> dict:
     }
 
 
-def _normalize_payload(args, kwargs):
+def _normalize_payload(args, kwargs, func: Optional[Callable] = None) -> dict:
     """
     Normalize arguments into a payload dict.
 
+    - If func is provided, bind arguments to parameter names.
     - If first arg is a dict, treat it as the payload base.
     - Merge kwargs on top.
     - If args are non-dict, store them under 'args'.
     """
+    if func is not None:
+        try:
+            sig = inspect.signature(func)
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+            return dict(bound.arguments)
+        except Exception:
+            pass
+
     if args and isinstance(args[0], dict):
         payload = dict(args[0])
     else:
@@ -197,9 +207,15 @@ class GuardClawMCPProxy:
         # 2) EXECUTE
         try:
             if inspect.iscoroutinefunction(func):
-                output = await func(**payload)
+                if "args" in payload and len(payload) == 1:
+                    output = await func(*payload["args"])
+                else:
+                    output = await func(**payload)
             else:
-                output = func(**payload)
+                if "args" in payload and len(payload) == 1:
+                    output = func(*payload["args"])
+                else:
+                    output = func(**payload)
 
             # 3) RESULT
             self._log(
@@ -297,13 +313,13 @@ class GuardClawMCPProxy:
 
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
-            payload = _normalize_payload(args, kwargs)
+            payload = _normalize_payload(args, kwargs, func=func)
             rid = run_id or kwargs.pop("run_id", None)
             return self.call(tool_name, payload, run_id=rid)
 
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
-            payload = _normalize_payload(args, kwargs)
+            payload = _normalize_payload(args, kwargs, func=func)
             rid = run_id or kwargs.pop("run_id", None) or str(uuid.uuid4())
             return await self._execute_async(tool_name, func, payload, rid)
 
@@ -327,3 +343,139 @@ class GuardClawMCPProxy:
 
     def __repr__(self) -> str:
         return f"GuardClawMCPProxy(agent_id={self.agent_id!r}, tools={self.list_tools()})"
+
+
+# ------------------------------------------------
+# JSON-RPC 2.0 Stdio Stream Interceptor
+# ------------------------------------------------
+
+def run_stdio_mcp_proxy(
+    cmd: Union[str, list],
+    agent_id: str = "mcp-agent",
+    ledger_path: Optional[str] = None,
+) -> None:
+    """
+    Run a transparent stdio JSON-RPC reverse proxy in front of an MCP server.
+    Intercepts and cryptographically signs all 'tools/call' requests and responses.
+    """
+    import subprocess
+    import json
+    import threading
+    from guardclaw.core.crypto import Ed25519KeyManager
+    from guardclaw.core.ledger import GEFLedger
+    from guardclaw.core.models import RecordType
+
+    key = Ed25519KeyManager.generate()
+    lp = ledger_path or ".guardclaw"
+    ledger = GEFLedger(key_manager=key, agent_id=agent_id, ledger_path=lp)
+
+    proc_args = cmd if isinstance(cmd, list) else cmd.split()
+    proc = subprocess.Popen(
+        proc_args,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=sys.stderr,
+        text=True,
+        bufsize=1,
+    )
+
+    pending_calls: Dict[Any, Dict[str, Any]] = {}
+    pending_lock = threading.Lock()
+
+    def client_to_server():
+        try:
+            for line in sys.stdin:
+                line_str = line.strip()
+                if not line_str:
+                    continue
+                try:
+                    msg = json.loads(line_str)
+                    if isinstance(msg, dict) and msg.get("method") == "tools/call":
+                        req_id = msg.get("id")
+                        params = msg.get("params", {})
+                        tool_name = params.get("name", "unknown_tool")
+                        args = params.get("arguments", {})
+
+                        with pending_lock:
+                            pending_calls[req_id] = {
+                                "tool_name": tool_name,
+                                "arguments": args,
+                                "run_id": str(uuid.uuid4()),
+                            }
+
+                        ledger.emit(
+                            record_type=RecordType.TOOL_CALL,
+                            payload={
+                                "tool": tool_name,
+                                "arguments": args,
+                                "request_id": str(req_id),
+                                "event": "mcp_tool_intent",
+                            },
+                        )
+                except Exception:
+                    pass
+
+                if proc.stdin:
+                    proc.stdin.write(line)
+                    proc.stdin.flush()
+        except Exception:
+            pass
+        finally:
+            if proc.stdin:
+                try:
+                    proc.stdin.close()
+                except Exception:
+                    pass
+
+    def server_to_client():
+        try:
+            if proc.stdout:
+                for line in proc.stdout:
+                    line_str = line.strip()
+                    if line_str:
+                        try:
+                            msg = json.loads(line_str)
+                            if isinstance(msg, dict) and "id" in msg:
+                                req_id = msg["id"]
+                                with pending_lock:
+                                    call_info = pending_calls.pop(req_id, None)
+
+                                if call_info:
+                                    tool_name = call_info["tool_name"]
+                                    if "error" in msg:
+                                        ledger.emit(
+                                            record_type=RecordType.FAILURE,
+                                            payload={
+                                                "tool": tool_name,
+                                                "error": msg["error"],
+                                                "request_id": str(req_id),
+                                                "event": "mcp_tool_error",
+                                            },
+                                        )
+                                    else:
+                                        ledger.emit(
+                                            record_type=RecordType.TOOL_RESULT,
+                                            payload={
+                                                "tool": tool_name,
+                                                "result": msg.get("result"),
+                                                "request_id": str(req_id),
+                                                "event": "mcp_tool_result",
+                                            },
+                                        )
+                        except Exception:
+                            pass
+
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+        except Exception:
+            pass
+
+    t_client = threading.Thread(target=client_to_server, daemon=True)
+    t_server = threading.Thread(target=server_to_client, daemon=True)
+
+    t_client.start()
+    t_server.start()
+
+    proc.wait()
+    t_server.join(timeout=1.0)
+

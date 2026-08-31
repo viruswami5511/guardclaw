@@ -197,5 +197,5 @@ def record_action(
 
 
 def verify_ledger(ledger_path: str):
-    from guardclaw.verification.verify import verify_ledger_file
-    return verify_ledger_file(ledger_path)
+    from guardclaw.core.verification import verify_ledger_file
+    return verify_ledger_file(Path(ledger_path))

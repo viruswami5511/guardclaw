@@ -1,10 +1,7 @@
 """
 guardclaw/__main__.py
 
-Enables: python -m guardclaw
-
-Delegates to the CLI entry point defined in guardclaw/cli/__init__.py.
-Registered in pyproject.toml as: guardclaw = "guardclaw.cli:cli"
+Direct execution entry point: python -m guardclaw
 """
 
 from guardclaw.cli import cli
