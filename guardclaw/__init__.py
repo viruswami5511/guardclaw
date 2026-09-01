@@ -37,6 +37,9 @@ from guardclaw.daemon.client import DaemonClient
 from guardclaw.core.kms import KeyProvider, LocalKeyProvider, AWSKMSKeyProvider, MockKMSKeyProvider
 from guardclaw.core.storage import GEFWriter, S3WORMBackend
 
+# Trace and Audit decorators
+audit = trace
+
 __all__ = [
     # Core types
     "ExecutionEnvelope",
@@ -67,8 +70,9 @@ __all__ = [
     # Session API
     "GEFSession",
     "session",
-    # Trace decorator
+    # Trace & Audit decorators
     "trace",
+    "audit",
     # Legacy / adapter
     "record_action",
     "verify_ledger",
