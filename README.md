@@ -96,11 +96,18 @@ guardclaw mcp-proxy --cmd "npx -y @modelcontextprotocol/server-filesystem ./data
 
 ---
 
-## The bet we're making
+## Where this fits
 
-Signed logs are a checkbox any platform can add for free. A **shared, vendor-neutral format** that works the same way whether your agent runs on AWS, Azure, GCP, or your laptop is not something any single platform has an incentive to build — because it makes you portable, not locked in.
+Provenance standards like **SLSA** and **in-toto** attest to how software was *built and deployed* — a point-in-time, pre-execution guarantee.
 
-If you maintain an MCP server, an agent framework, or a compliance tool and want GEF-SPEC support, open an issue or a PR. Real third-party adoption is the only thing that makes this format worth anything — we'd rather have one external integration than a hundred stars.
+**GuardClaw addresses a different moment in the lifecycle:** what an autonomous agent *does at runtime*, as it executes tool calls and interacts with external systems.
+
+We are one of several independent groups exploring runtime execution attestation for AI agents in 2026. What we offer today is:
+1. **A Python reference implementation** for Python agent runtimes and frameworks.
+2. **A zero-code MCP stdio proxy** that wraps and signs tool invocations for any server speaking the Model Context Protocol (regardless of whether the server was written in TypeScript, Python, or Go).
+3. **An open, vendor-neutral envelope format (`GEF-SPEC-1.0`)** based on RFC 8785 canonicalization and Ed25519 signatures.
+
+If you maintain an MCP tool or Python agent framework and want to experiment with runtime cryptographic evidence, we welcome issues and pull requests.
 
 ---
 
