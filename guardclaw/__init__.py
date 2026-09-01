@@ -6,7 +6,7 @@ GuardClaw: Cryptographic Evidence Ledger for Autonomous Agent Accountability
 GEF v1.0 - GuardClaw Evidence Format
 """
 
-__version__     = "0.8.0"
+__version__     = "0.8.1"
 __gef_version__ = "1.0"
 
 from guardclaw.core.models import (
