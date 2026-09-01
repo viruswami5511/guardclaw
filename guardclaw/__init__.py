@@ -6,7 +6,7 @@ GuardClaw: Cryptographic Evidence Ledger for Autonomous Agent Accountability
 GEF v1.0 - GuardClaw Evidence Format
 """
 
-__version__     = "0.7.1"
+__version__     = "0.8.0"
 __gef_version__ = "1.0"
 
 from guardclaw.core.models import (
@@ -32,6 +32,10 @@ from guardclaw.trace import trace
 from guardclaw.core.merkle import MerkleTree, MerkleInclusionProof
 from guardclaw.bundle.compliance import ComplianceDossierGenerator
 from guardclaw.mcp.proxy import GuardClawMCPProxy
+from guardclaw.daemon.service import GuardClawDaemon
+from guardclaw.daemon.client import DaemonClient
+from guardclaw.core.kms import KeyProvider, LocalKeyProvider, AWSKMSKeyProvider, MockKMSKeyProvider
+from guardclaw.core.storage import GEFWriter, S3WORMBackend
 
 __all__ = [
     # Core types
@@ -41,6 +45,15 @@ __all__ = [
     "RecordType",
     "SchemaValidationResult",
     "GEFVersionError",
+    # Enterprise Infrastructure & Daemon
+    "GuardClawDaemon",
+    "DaemonClient",
+    "KeyProvider",
+    "LocalKeyProvider",
+    "AWSKMSKeyProvider",
+    "MockKMSKeyProvider",
+    "GEFWriter",
+    "S3WORMBackend",
     # Enterprise & Compliance
     "MerkleTree",
     "MerkleInclusionProof",

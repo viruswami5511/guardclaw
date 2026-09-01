@@ -15,6 +15,7 @@ from guardclaw.cli.export import export_command
 from guardclaw.cli.dossier import dossier_command
 from guardclaw.cli.mcp import mcp_proxy_command
 from guardclaw.cli.merkle import prove_inclusion_command, verify_inclusion_command
+from guardclaw.cli.daemon import daemon_group
 
 
 @click.group()
@@ -29,3 +30,4 @@ cli.add_command(dossier_command)
 cli.add_command(mcp_proxy_command)
 cli.add_command(prove_inclusion_command)
 cli.add_command(verify_inclusion_command)
+cli.add_command(daemon_group)
