@@ -89,3 +89,4 @@ test_lock_results.txt
 test_results.txt
 debug_sig.py
 manual_tamper_test.py
+guardclaw-test/

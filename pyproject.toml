@@ -48,8 +48,8 @@ guardclaw = "guardclaw.pytest_plugin"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["guardclaw*"]
-exclude = ["tests*", "examples*", "docs*"]
+include = ["guardclaw", "guardclaw.*"]
+exclude = ["tests*", "examples*", "docs*", "guardclaw-test*", "bench*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
