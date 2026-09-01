@@ -87,6 +87,11 @@ class ReplayEngine:
 
     def stream_verify(self, ledger_path: Path) -> VerificationSummary:
         lp = Path(ledger_path)
+        if lp.is_dir():
+            for candidate in ["ledger.jsonl", "ledger.gef"]:
+                if (lp / candidate).exists():
+                    lp = lp / candidate
+                    break
         is_rec = self.mode == "recovery"
         if not lp.exists():
             return VerificationSummary(
@@ -111,6 +116,12 @@ class ReplayEngine:
         self.envelopes = []
         self._load_error: Optional[str] = None
         line_num = 0
+        path = Path(path)
+        if path.is_dir():
+            for candidate in ["ledger.jsonl", "ledger.gef"]:
+                if (path / candidate).exists():
+                    path = path / candidate
+                    break
         try:
             with open(path, "r", encoding="utf-8") as f:
                 for line_num, line in enumerate(f):
