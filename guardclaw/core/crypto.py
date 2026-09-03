@@ -73,6 +73,8 @@ class Ed25519KeyManager:
 
         return cls(private_key)
 
+    load = from_file
+
     @classmethod
     def from_private_bytes(cls, seed) -> "Ed25519KeyManager":
         if not isinstance(seed, bytes):
