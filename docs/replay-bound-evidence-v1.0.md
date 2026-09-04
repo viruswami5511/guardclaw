@@ -8,7 +8,7 @@
 **DOI:** https://zenodo.org/records/18712808  
 **Published:** 2026-02-20  
 **Archived:** https://web.archive.org/web/20260220125746/https://github.com/viruswami5511/guardclaw/blob/master/docs/replay-bound-evidence-v1.0.md 
-**Reference implementation:** GuardClaw v0.7.1 — [GEF-SPEC-1.0](https://github.com/viruswami5511/guardclaw/blob/master/docs/GEF-SPEC-v1.0.md)
+**Reference implementation:** GuardClaw v0.8.2 — [GEF-SPEC-1.0](https://github.com/viruswami5511/guardclaw/blob/master/docs/GEF-SPEC-v1.0.md)
 
 ---
 

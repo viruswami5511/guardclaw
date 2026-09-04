@@ -1,7 +1,7 @@
 # Security Policy
 
 **Status:** Stable  
-**Version:** v0.7.1
+**Version:** v0.8.2
 **Protocol:** GEF-SPEC-1.0
 
 ---
@@ -10,9 +10,9 @@
 
 | Version | Status |
 |--------|--------|
-| 0.7.x  | ✅ Supported — current stable |
-| 0.5.x  | ⚠️ Deprecated — upgrade to 0.7.x |
-| 0.2.x  | ❌ Unsupported — pre-GEF protocol |
+| 0.8.x  | ✅ Supported — current release |
+| 0.7.x  | ⚠️ Maintenance |
+| <0.7.x | ❌ Deprecated — pre-GEF protocol |
 
 ---
 
@@ -35,7 +35,7 @@ Please include:
 
 ## Cryptographic Primitives
 
-GuardClaw v0.7.1 uses:
+GuardClaw v0.8.2 uses:
 
 | Primitive        | Algorithm          | Reference        |
 |------------------|--------------------|------------------|
@@ -85,4 +85,4 @@ Known limitations (by design):
 
 ## Disclosure
 
-GuardClaw v0.7.1 implements GEF-SPEC-1.0 — a stable, formally specified cryptographic accountability protocol. It is a foundational accountability layer, not a complete security system. Use additional controls where your threat model requires them.
+GuardClaw v0.8.2 implements GEF-SPEC-1.0 — a stable, formally specified cryptographic accountability protocol. It is a foundational accountability layer, not a complete security system. Use additional controls where your threat model requires them.
