@@ -76,9 +76,9 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 ## 4. Threat Classification
 
-- âœ… Detected and provable by design
-- âš ï¸ Detectable within defined scope
-- âŒ Out of scope
+- ✅ Detected and provable by design
+- ⚠️ Detectable within defined scope
+- ❌ Out of scope
 
 ---
 
@@ -88,7 +88,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** An attacker modifies any field of a signed envelope.
 
-**Classification:** âœ… Detected by design
+**Classification:** ✅ Detected by design
 
 **Mechanism:** Ed25519 signature verification fails. The `signer_public_key` is embedded in the signing surface — key substitution also breaks the chain hash of the next entry.
 
@@ -98,7 +98,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** An attacker injects a new record between two existing records.
 
-**Classification:** âœ… Detected by design
+**Classification:** ✅ Detected by design
 
 **Mechanism:** The injected record's `causal_hash` will not match SHA-256(JCS(prev.signing_surface)). Chain break reported at the injection point and every subsequent entry.
 
@@ -108,7 +108,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** An attacker deletes a record from the middle of the ledger.
 
-**Classification:** âœ… Detected by design
+**Classification:** ✅ Detected by design
 
 **Mechanism:** Sequence gap detection (INV-25) and chain break at the next entry. Both violations are reported.
 
@@ -118,7 +118,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** An attacker reorders records within the ledger.
 
-**Classification:** âœ… Detected by design
+**Classification:** ✅ Detected by design
 
 **Mechanism:** Both sequence gaps and chain breaks are detected.
 
@@ -128,7 +128,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** A captured valid envelope is re-inserted into the same ledger.
 
-**Classification:** âœ… Detected by design
+**Classification:** ✅ Detected by design
 
 **Mechanism:** INV-29 — the replay engine actively scans all nonces. Duplicate nonce reported as `schema` violation. Chain break also reported because the re-inserted envelope's `causal_hash` will not match the expected value at its position.
 
@@ -138,7 +138,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** An attacker deletes records from the end of the ledger.
 
-**Classification:** âš ï¸ Detectable with external anchoring only
+**Classification:** ⚠️ Detectable with external anchoring only
 
 **Mechanism:** A truncated ledger passes all seven verification steps against its remaining records. Truncation is not detectable by a verifier operating on the ledger alone.
 
@@ -150,7 +150,7 @@ These boundaries are intentional. See the Evidence Maturity Model in [docs/repla
 
 **Scenario:** System clock is altered before emitting envelopes.
 
-**Classification:** âš ï¸ Detectable with external anchoring only
+**Classification:** ⚠️ Detectable with external anchoring only
 
 **Reason:** `timestamp` is in the signing surface — it cannot be modified after signing. However, it reflects operator-asserted time, not
 authoritative wall-clock time. RFC 3161 anchoring (Level 4) provides authoritative time proof.
@@ -161,7 +161,7 @@ authoritative wall-clock time. RFC 3161 anchoring (Level 4) provides authoritati
 
 **Scenario:** An attacker obtains the private signing key.
 
-**Classification:** âŒ Out of scope
+**Classification:** ❌ Out of scope
 
 **Reason:** A compromised key allows production of valid-appearing new records. It does not allow retroactive modification of existing records without breaking the chain hash. Key rotation requires creating a new ledger. Multi-key support is planned for a future minor version (GEF-SPEC-1.1).
 
@@ -170,7 +170,7 @@ authoritative wall-clock time. RFC 3161 anchoring (Level 4) provides authoritati
 ### 5.9 Cross-Ledger Replay
 
 **Scenario:** A valid envelope from one ledger is replayed into another. 
-**Classification:** âŒ Out of scope (ledger-local integrity only)
+**Classification:** ❌ Out of scope (ledger-local integrity only)
 
 **Reason:** GEF v1.0 provides ledger-local integrity. Cross-ledger replay prevention requires application-layer controls.
 
@@ -180,7 +180,7 @@ authoritative wall-clock time. RFC 3161 anchoring (Level 4) provides authoritati
 
 **Scenario:** A vulnerability is found in Ed25519, SHA-256, or RFC 8785.
 
-**Classification:** âŒ Out of scope
+**Classification:** ❌ Out of scope
 
 **Reason:** Standard inheritance risk. A new `gef_version` with updated
 primitives is required per SPEC.md Section 14.
@@ -191,16 +191,16 @@ primitives is required per SPEC.md Section 14.
 
 | Threat | Classification |
 |---|---|
-| Event field tampering | âœ… Detected |
-| Record insertion | âœ… Detected |
-| Record deletion (middle) | âœ… Detected |
-| Record reordering | âœ… Detected |
-| Replay within ledger | âœ… Detected (INV-29 + chain) |
-| Tail truncation | âš ï¸ External anchoring required |
-| Timestamp manipulation | âš ï¸ External anchoring required |
-| Key compromise | âŒ Out of scope |
-| Cross-ledger replay | âŒ Out of scope |
-| Cryptographic primitive flaw | âŒ Out of scope |
+| Event field tampering | ✅ Detected |
+| Record insertion | ✅ Detected |
+| Record deletion (middle) | ✅ Detected |
+| Record reordering | ✅ Detected |
+| Replay within ledger | ✅ Detected (INV-29 + chain) |
+| Tail truncation | ⚠️ External anchoring required |
+| Timestamp manipulation | ⚠️ External anchoring required |
+| Key compromise | ❌ Out of scope |
+| Cross-ledger replay | ❌ Out of scope |
+| Cryptographic primitive flaw | ❌ Out of scope |
 
 ---
 

@@ -179,7 +179,7 @@ The first entry in a ledger. The genesis entry has `sequence: 0` and `causal_has
 A 32-character lowercase hex string (128 bits of cryptographically random entropy) included in every envelope. The nonce provides global uniqueness. Two envelopes with identical payload, timestamp, and `agent_id` will still differ in their nonce, ensuring distinct signatures and preventing replay attacks.
 
 **Sequence number.**
-A zero-based, monotonically increasing integer (0, 1, 2, â€¦). Every envelope in a ledger has a unique sequence number. The genesis entry is always `sequence: 0`. Each subsequent entry increments by exactly 1.
+A zero-based, monotonically increasing integer (0, 1, 2, ...). Every envelope in a ledger has a unique sequence number. The genesis entry is always `sequence: 0`. Each subsequent entry increments by exactly 1.
 
 **Violation.**
 A detected inconsistency in a ledger: a broken causal hash link, an invalid signature, a schema error, or a sequence gap. See Appendix B for the complete violation type registry.
@@ -219,25 +219,25 @@ A verifier (any party holding the agent's public key) can at any time:
 The verifier requires no private keys, no shared secrets, no connection to the agent, and no access to the original system. The ledger file and the public key are sufficient.
 
 ```
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚   AGENT                        LEDGER                  VERIFIER     â”‚
-â”‚                                                                     â”‚
-â”‚   Ed25519 key pair             ledger.jsonl            public key   â”‚
-â”‚        â”‚                            â”‚                      â”‚        â”‚
-â”‚   [action]                          â”‚                      â”‚        â”‚
-â”‚        â”‚                            â”‚                      â”‚        â”‚
-â”‚   construct envelope                â”‚                      â”‚        â”‚
-â”‚   compute causal_hash               â”‚                      â”‚        â”‚
-â”‚   assign sequence + nonce           â”‚                      â”‚        â”‚
-â”‚   JCS(signing_surface) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–º  â”‚                      â”‚        â”‚
-â”‚   Ed25519.Sign(canonical_bytes)     â”‚                      â”‚        â”‚
-â”‚   append to ledger â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–º  â”‚                      â”‚        â”‚
-â”‚                                     â”‚                      â”‚        â”‚
-â”‚                                     â”‚  â—„â”€â”€â”€ load â”€â”€â”€â”€â”€â”€    â”‚        â”‚
-â”‚                                     â”‚      verify chain    â”‚        â”‚
-â”‚                                     â”‚      verify sigs     â”‚        â”‚
-â”‚                                     â”‚      emit summary â”€â”€â–ºâ”‚        â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+┌─────────────────────────────────────────────────────────────────────┐
+│   AGENT                        LEDGER                  VERIFIER     │
+│                                                                     │
+│   Ed25519 key pair             ledger.jsonl            public key   │
+│        │                            │                      │        │
+│   [action]                          │                      │        │
+│        │                            │                      │        │
+│   construct envelope                │                      │        │
+│   compute causal_hash               │                      │        │
+│   assign sequence + nonce           │                      │        │
+│   JCS(signing_surface) ──────────>  │                      │        │
+│   Ed25519.Sign(canonical_bytes)     │                      │        │
+│   append to ledger ──────────────>  │                      │        │
+│                                     │                      │        │
+│                                     │  <──── load ──────   │        │
+│                                     │      verify chain    │        │
+│                                     │      verify sigs     │        │
+│                                     │      emit summary ──>│        │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -276,7 +276,7 @@ MUST be a non-empty string. UUID v4 format is RECOMMENDED. The `record_id` MUST 
 MUST be exactly 64 lowercase hexadecimal characters representing the 32-byte Ed25519 public key. Uppercase hex is invalid. A key of incorrect length is a schema violation.
 
 **`sequence`**
-MUST be a non-negative integer (â‰¥ 0). The genesis entry MUST have `sequence: 0`. Each subsequent entry MUST increment by exactly 1. A gap (e.g., 0, 1, 3) or repeat (e.g., 0, 1, 1) is a sequence violation.
+MUST be a non-negative integer (>= 0). The genesis entry MUST have `sequence: 0`. Each subsequent entry MUST increment by exactly 1. A gap (e.g., 0, 1, 3) or repeat (e.g., 0, 1, 1) is a sequence violation.
 
 **`nonce`**
 MUST be exactly 32 lowercase hexadecimal characters (16 bytes, 128 bits). MUST be generated from a cryptographically secure random number generator. Uppercase hex is invalid. A nonce of incorrect length is a schema violation.
@@ -590,7 +590,7 @@ This section defines 33 invariants that a compliant implementation MUST satisfy.
 | **INV-10** | The `causal_hash` of entry N (N > 0) MUST equal the SHA-256 of the JCS canonical bytes of entry N-1's signing surface, encoded as 64 lowercase hex characters. |
 | **INV-11** | Mutating the `payload` of entry N-1 after entry N is constructed MUST break the chain verification for entry N. |
 | **INV-12** | Mutating the `record_id` of entry N-1 MUST break the chain verification for entry N. |
-| **INV-13** | A chain of N signed envelopes where each entry was produced per the protocol MUST fully verify (no chain breaks, no signature failures) for any N â‰¥ 1. |
+| **INV-13** | A chain of N signed envelopes where each entry was produced per the protocol MUST fully verify (no chain breaks, no signature failures) for any N >= 1. |
 | **INV-14** | Injecting a new entry between positions M and M+1 in an existing chain MUST produce a chain break violation at position M+1. |
 
 ### 10.3 Schema Invariants (INV-15 – INV-22)
@@ -629,7 +629,7 @@ This section defines 33 invariants that a compliant implementation MUST satisfy.
 | ID | Invariant |
 |---|---|
 | **INV-31** | The set of fields in the signing surface MUST be identical to the set of fields in the chain dict (the object used to compute `causal_hash`). Both contain exactly the ten fields excluding `signature`. |
-| **INV-32** | The JCS canonical bytes produced for a given signing surface MUST be identical across serialize â†’ deserialize round-trips. That is, serializing an envelope to JSON, deserializing it, and recomputing canonical bytes MUST produce the same byte sequence. |
+| **INV-32** | The JCS canonical bytes produced for a given signing surface MUST be identical across serialize → deserialize round-trips. That is, serializing an envelope to JSON, deserializing it, and recomputing canonical bytes MUST produce the same byte sequence. |
 | **INV-33** | The `causal_hash` computed before and after a serialize/deserialize round-trip of an envelope MUST be identical. |
 
 ---
@@ -856,7 +856,7 @@ The GEF protocol version is carried in the `gef_version` field of every envelope
 
 ### 14.2 Major Version — Breaking Changes
 
-A major version increment (1.0 â†’ 2.0) is REQUIRED whenever any of the following changes are made:
+A major version increment (1.0 → 2.0) is REQUIRED whenever any of the following changes are made:
 
 **Signing surface changes — always major:**
 - Adding, removing, or renaming any field in the signing surface.
@@ -867,7 +867,7 @@ A major version increment (1.0 â†’ 2.0) is REQUIRED whenever any of the fol
 - Replacing RFC 8785 JCS with any other canonicalization scheme.
 - Replacing SHA-256 with any other hash algorithm for chain hashing.
 - Replacing Ed25519 with any other signature algorithm.
-- Changing the signature encoding (e.g., base64url â†’ hex).
+- Changing the signature encoding (e.g., base64url → hex).
 
 **Chain semantics changes — always major:**
 - Changing the genesis hash sentinel value.
@@ -881,7 +881,7 @@ A major version increment (1.0 â†’ 2.0) is REQUIRED whenever any of the fol
 
 ### 14.3 Minor Version — Additive Changes
 
-A minor version increment (1.0 â†’ 1.1) is used for additive, non-breaking changes. The following changes are minor:
+A minor version increment (1.0 → 1.1) is used for additive, non-breaking changes. The following changes are minor:
 
 - Adding new record types to the registry (see Section 14.5).
 - Adding new optional metadata fields that are stored in the ledger JSON but are **NOT** included in the signing surface. Such fields do not affect canonicalization, chain hashes, or signatures.
@@ -896,7 +896,7 @@ The following are **NOT** minor changes — they are major:
 
 All envelopes in a ledger MUST share the same `gef_version` value. A ledger mixing `"1.0"` and `"1.1"` envelopes is invalid and MUST be rejected by a verifier with a `GEFVersionError`.
 
-- A verifier for GEF v1.x MUST accept ledgers with any `gef_version` value of the form `"1.y"` where y â‰¥ 0.
+- A verifier for GEF v1.x MUST accept ledgers with any `gef_version` value of the form `"1.y"` where y >= 0.
 - A verifier for GEF v1.x encountering a ledger with `gef_version` `"2.0"` MUST reject the ledger with a clear error message indicating the version is unsupported.
 
 ### 14.5 Forward Compatibility for Record Types
@@ -1027,17 +1027,17 @@ MIT lacks the patent clause. GPL requires derivative works to be open-sourced, w
 
 | Field | Type | Length / Format | Required | In Signing Surface |
 |---|---|---|---|---|
-| `gef_version` | string | `"1.0"` | âœ… | âœ… |
-| `record_id` | string | Non-empty, UUID v4 recommended | âœ… | âœ… |
-| `record_type` | string | See registry | âœ… | âœ… |
-| `agent_id` | string | Non-empty | âœ… | âœ… |
-| `signer_public_key` | string | 64 lowercase hex chars | âœ… | âœ… |
-| `sequence` | integer | â‰¥ 0, monotonically increasing | âœ… | âœ… |
-| `nonce` | string | 32 lowercase hex chars (128-bit CSPRNG) | âœ… | âœ… |
-| `timestamp` | string | `YYYY-MM-DDTHH:mm:ss.sssZ` (UTC) | âœ… | âœ… |
-| `causal_hash` | string | 64 lowercase hex chars | âœ… | âœ… |
-| `payload` | object | JSON object `{}` | âœ… | âœ… |
-| `signature` | string | ~86 base64url chars, no padding | âœ… | âŒ |
+| `gef_version` | string | `"1.0"` | ✅ | ✅ |
+| `record_id` | string | Non-empty, UUID v4 recommended | ✅ | ✅ |
+| `record_type` | string | See registry | ✅ | ✅ |
+| `agent_id` | string | Non-empty | ✅ | ✅ |
+| `signer_public_key` | string | 64 lowercase hex chars | ✅ | ✅ |
+| `sequence` | integer | >= 0, monotonically increasing | ✅ | ✅ |
+| `nonce` | string | 32 lowercase hex chars (128-bit CSPRNG) | ✅ | ✅ |
+| `timestamp` | string | `YYYY-MM-DDTHH:mm:ss.sssZ` (UTC) | ✅ | ✅ |
+| `causal_hash` | string | 64 lowercase hex chars | ✅ | ✅ |
+| `payload` | object | JSON object `{}` | ✅ | ✅ |
+| `signature` | string | ~86 base64url chars, no padding | ✅ | ❌ |
 
 ---
 
@@ -1116,7 +1116,7 @@ RFC 8785 JCS sorts JSON object keys by Unicode code point order of their UTF-8 e
 ---
 
 *GEF Protocol Specification — Version 1.0*
-*Â© 2026 GuardClaw*
+*© 2026 GuardClaw*
 *Licensed under the Apache License, Version 2.0*
 *Repository: https://github.com/viruswami5511/guardclaw*
 *Published: 2026-02-27*

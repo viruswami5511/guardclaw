@@ -314,7 +314,7 @@ Sequence-based implementations may alternatively enforce:
 
 ```
 
-Sequence(Eáµ¢) = Sequence(Eáµ¢â‚‹â‚) + 1
+Sequence(E_i) = Sequence(E_{i-1}) + 1
 
 ```
 
@@ -474,7 +474,7 @@ Replay-Bound Evidence does not guarantee:
 
 
 
-\### âš ï¸ Fundamental Limitation: The Oracle Problem
+\### ⚠️ Fundamental Limitation: The Oracle Problem
 
 
 

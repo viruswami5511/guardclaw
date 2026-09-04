@@ -107,7 +107,7 @@ Each envelope is a JSON object with the following fields:
 
 - `causal_hash`  
   - For the genesis entry (`sequence == 0`):  
-    - MUST be equal to `GENESIS_HASH` (see Â§6.1).  
+    - MUST be equal to `GENESIS_HASH` (see §6.1).  
   - For all subsequent entries:  
     - MUST equal the SHA-256 digest of the **canonical signing surface** of the previous entry.
 
@@ -342,7 +342,7 @@ Non-guarantees (explicitly out of scope):
 - Durable replay protection across processes or systems  
 - Key compromise resistance  
 - Trusted timestamps  
-- Consensus on â€œtheâ€ canonical ledger  
+- Consensus on “the” canonical ledger  
 - Confidentiality (GEF is about integrity, not encryption)
 
 ---
